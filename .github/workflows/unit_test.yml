@@ -1,0 +1,54 @@
+name: MultiPlatformUnitTest
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit_test:
+    name: Unit test with Tor
+
+    strategy:
+      matrix:
+        os:
+          - "ubuntu-latest"
+          - "windows-latest"
+          - "macos-latest"
+        go:
+          - "1.25"
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Install Tor (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tor
+
+      - name: Install Tor (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install tor
+
+      - name: Install Tor (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install tor -y
+
+      - name: Run integration tests with coverage
+        run: make integration-test
+        env:
+          TORNAGO_INTEGRATION: "1"
+
