@@ -28,8 +28,10 @@ To prevent potential misuse, tornago is intentionally kept as a thin wrapper aro
 
 ### Operating Systems
 
-- **Primary Support**: Linux
-- **Status**: The library has not been tested for compatibility with Windows and macOS, though it may work on systems where Tor is available.
+- Linux
+- macOS
+
+Tornago library may work in a BSD environment, but it has not been tested. It definitely does not work in a Windows environment.
 
 ### Tor
 
@@ -62,8 +64,6 @@ tor --version
 - ControlPort commands: AUTHENTICATE, GETINFO, SIGNAL NEWNYM, ADD_ONION, DEL_ONION
 - Cookie and password authentication methods
 - ED25519-V3 onion addresses
-
-
 
 ## Quick Start
 
