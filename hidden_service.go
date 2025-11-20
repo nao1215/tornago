@@ -122,12 +122,37 @@ func (a HiddenServiceAuth) ClientName() string { return a.clientName }
 // Key returns the authorization key.
 func (a HiddenServiceAuth) Key() string { return a.key }
 
-// HiddenService represents a provisioned Hidden Service.
+// HiddenService represents a provisioned Hidden Service (also known as an onion service).
+// A hidden service allows you to host a server that's accessible only through the Tor network,
+// identified by a .onion address.
+//
+// Benefits of hidden services:
+//   - No need for public IP address or DNS registration
+//   - Server location and IP remain anonymous
+//   - End-to-end encryption through Tor network
+//   - Censorship resistance (difficult to block .onion addresses)
+//
+// Example usage:
+//
+//	// Create hidden service mapping port 80 to local port 8080
+//	cfg, _ := tornago.NewHiddenServiceConfig(
+//	    tornago.WithHiddenServicePort(80, 8080),
+//	)
+//	hs, _ := controlClient.CreateHiddenService(context.Background(), cfg)
+//	defer hs.Remove(context.Background())
+//
+//	fmt.Printf("Your service is at: %s\n", hs.OnionAddress())
+//	// Example output: "abc123xyz456.onion"
 type HiddenService interface {
+	// OnionAddress returns the .onion address where the service is accessible.
 	OnionAddress() string
+	// PrivateKey returns the private key in Tor's format for re-registering this service.
 	PrivateKey() string
+	// Ports returns the virtual port to local port mapping.
 	Ports() map[int]int
+	// ClientAuth returns the client authorization entries if configured.
 	ClientAuth() []HiddenServiceAuth
+	// Remove deletes this hidden service from Tor. The .onion address becomes inaccessible.
 	Remove(ctx context.Context) error
 }
 

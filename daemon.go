@@ -82,6 +82,36 @@ func (p *TorProcess) Stop() error {
 // StartTorDaemon launches the tor binary as a child process using the provided
 // configuration. It waits until both the SocksPort and ControlPort become
 // reachable or until StartupTimeout elapses.
+//
+// This function is useful when you want your application to manage its own Tor instance
+// rather than relying on a system-wide Tor daemon. StartTorDaemon handles:
+//   - Finding the tor binary in PATH (install via: apt install tor, brew install tor, choco install tor)
+//   - Allocating free ports when using ":0" addresses
+//   - Configuring cookie authentication automatically
+//   - Waiting for Tor to become ready before returning
+//   - Creating/managing the Tor DataDirectory
+//
+// The returned TorProcess must be stopped via Stop() to cleanly terminate Tor and
+// clean up resources. Use defer torProc.Stop() to ensure cleanup.
+//
+// Example usage:
+//
+//	cfg, _ := tornago.NewTorLaunchConfig(
+//	    tornago.WithTorSocksAddr(":0"),     // Auto-select free port
+//	    tornago.WithTorControlAddr(":0"),   // Auto-select free port
+//	)
+//	torProc, err := tornago.StartTorDaemon(cfg)
+//	if err != nil {
+//	    log.Fatalf("failed to start tor: %v", err)
+//	}
+//	defer torProc.Stop()
+//
+//	// Use torProc.SocksAddr() and torProc.ControlAddr() to connect
+//	clientCfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr(torProc.SocksAddr()),
+//	)
+//	client, _ := tornago.NewClient(clientCfg)
+//	defer client.Close()
 func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 	cfg, err = normalizeTorLaunchConfig(cfg)
 	if err != nil {

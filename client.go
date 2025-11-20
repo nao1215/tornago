@@ -20,6 +20,27 @@ const (
 // Client bundles HTTP/TCP over Tor along with optional ControlPort access.
 // It rewrites Dial/HTTP operations to go through Tor's SOCKS5 proxy and
 // automatically retries failures based on ClientConfig.
+//
+// Client is the main entry point for making HTTP requests or TCP connections through Tor.
+// It handles:
+//   - Automatic SOCKS5 proxying through Tor's SocksPort
+//   - Exponential backoff retry logic for failed requests
+//   - Optional ControlPort access for circuit rotation and hidden services
+//   - Thread-safe operation for concurrent requests
+//
+// Example usage:
+//
+//	cfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	)
+//	client, _ := tornago.NewClient(cfg)
+//	defer client.Close()
+//
+//	// Make HTTP requests through Tor
+//	resp, err := client.HTTP().Get("https://check.torproject.org")
+//
+//	// Make raw TCP connections through Tor
+//	conn, err := client.Dial("tcp", "example.onion:80")
 type Client struct {
 	// httpClient issues HTTP requests routed through Tor.
 	httpClient *http.Client
@@ -34,6 +55,13 @@ type Client struct {
 }
 
 // NewClient builds a Client that routes traffic through the configured Tor server.
+// The client is ready to use immediately after creation - all connections will
+// automatically be routed through Tor's SOCKS5 proxy.
+//
+// If cfg includes a ControlAddr, the client will also connect to Tor's ControlPort
+// for management operations (e.g., circuit rotation, hidden service creation).
+//
+// Always call Close() when done to clean up resources.
 func NewClient(cfg ClientConfig) (*Client, error) {
 	cfg, err := normalizeClientConfig(cfg)
 	if err != nil {

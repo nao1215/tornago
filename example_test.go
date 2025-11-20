@@ -146,3 +146,110 @@ func Example_startTorDaemon() {
 		launchCfg.SocksAddr(), launchCfg.ControlAddr())
 	// Output: Tor daemon configured with SOCKS: 127.0.0.1:9050, Control: 127.0.0.1:9051
 }
+
+// Example_quickStart demonstrates the simplest way to make HTTP requests through Tor.
+// This example assumes you have Tor running locally on the default port (9050).
+// To install Tor: apt-get install tor (Ubuntu), brew install tor (macOS), or choco install tor (Windows).
+func Example_quickStart() {
+	// Create a client that uses your local Tor instance
+	clientCfg, err := tornago.NewClientConfig(
+		tornago.WithClientSocksAddr("127.0.0.1:9050"),
+	)
+	if err != nil {
+		log.Fatalf("failed to create config: %v", err)
+	}
+
+	client, err := tornago.NewClient(clientCfg)
+	if err != nil {
+		log.Fatalf("failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Get the HTTP client and use it like any http.Client
+	// All requests automatically go through Tor
+	httpClient := client.HTTP()
+	_ = httpClient // Use for http.Get, http.Post, etc.
+
+	fmt.Println("HTTP client ready to make requests through Tor")
+	// Output: HTTP client ready to make requests through Tor
+}
+
+// Example_launchAndUse demonstrates launching a Tor daemon and using it for HTTP requests.
+// This is useful when you want your application to manage its own Tor instance.
+func Example_launchAndUse() {
+	// Launch a Tor daemon with automatic port selection
+	launchCfg, err := tornago.NewTorLaunchConfig(
+		tornago.WithTorSocksAddr(":0"),   // Let Tor pick a free port
+		tornago.WithTorControlAddr(":0"), // Let Tor pick a free port
+		tornago.WithTorStartupTimeout(time.Minute),
+	)
+	if err != nil {
+		log.Fatalf("failed to create launch config: %v", err)
+	}
+
+	// StartTorDaemon blocks until Tor is ready to accept connections
+	// (Note: This example doesn't actually start Tor to keep tests fast)
+	// torProc, err := tornago.StartTorDaemon(launchCfg)
+	// if err != nil {
+	//     log.Fatalf("failed to start tor: %v", err)
+	// }
+	// defer torProc.Stop()
+
+	// Create a client using the launched Tor instance
+	// clientCfg, err := tornago.NewClientConfig(
+	//     tornago.WithClientSocksAddr(torProc.SocksAddr()),
+	// )
+	// client, err := tornago.NewClient(clientCfg)
+
+	fmt.Printf("Configured to launch Tor with timeout: %v\n", launchCfg.StartupTimeout())
+	// Output: Configured to launch Tor with timeout: 1m0s
+}
+
+// Example_connectToExistingTor demonstrates connecting to an already-running Tor instance.
+// This is the recommended approach for production environments.
+func Example_connectToExistingTor() {
+	// Configure client to connect to a running Tor instance
+	// (Note: This example shows configuration only; actual connection requires Tor to be running)
+	clientCfg, err := tornago.NewClientConfig(
+		tornago.WithClientSocksAddr("127.0.0.1:9050"),
+		// Optionally configure ControlPort for circuit rotation and hidden services
+		// tornago.WithClientControlAddr("127.0.0.1:9051"),
+		// tornago.WithClientControlCookie("/var/lib/tor/control_auth_cookie"),
+	)
+	if err != nil {
+		log.Fatalf("failed to create config: %v", err)
+	}
+
+	// In production, you would create and use the client like this:
+	// client, err := tornago.NewClient(clientCfg)
+	// if err != nil {
+	//     log.Fatalf("failed to create client: %v", err)
+	// }
+	// defer client.Close()
+
+	fmt.Printf("Configured to connect to Tor at %s\n", clientCfg.SocksAddr())
+	// Output: Configured to connect to Tor at 127.0.0.1:9050
+}
+
+// Example_rotateCircuit demonstrates how to request a new Tor identity (new exit node/IP).
+func Example_rotateCircuit() {
+	// This example shows the concept; actual execution requires a running Tor instance
+	fmt.Println("To rotate circuits:")
+	fmt.Println("1. Create a Client with ControlAddr configured")
+	fmt.Println("2. Call client.Control().NewIdentity(ctx)")
+	fmt.Println("3. Subsequent requests use new circuits with different exit IPs")
+	// Output: To rotate circuits:
+	// 1. Create a Client with ControlAddr configured
+	// 2. Call client.Control().NewIdentity(ctx)
+	// 3. Subsequent requests use new circuits with different exit IPs
+}
+
+// Example_errorHandling demonstrates how to handle tornago-specific errors.
+func Example_errorHandling() {
+	fmt.Println("tornago uses TornagoError with Kind field for error classification")
+	fmt.Println("Use errors.Is() to check specific error kinds")
+	fmt.Println("Common kinds: ErrTorBinaryNotFound, ErrSocksDialFailed, ErrTimeout")
+	// Output: tornago uses TornagoError with Kind field for error classification
+	// Use errors.Is() to check specific error kinds
+	// Common kinds: ErrTorBinaryNotFound, ErrSocksDialFailed, ErrTimeout
+}

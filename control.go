@@ -25,6 +25,25 @@ const (
 // provided as a standalone client so tools that only need ControlPort access
 // (e.g. circuit rotation or Hidden Service management) can use it without
 // constructing the higher-level HTTP/TCP Client.
+//
+// The ControlPort allows you to:
+//   - Rotate circuits to get new exit IPs (NewIdentity)
+//   - Create and manage hidden services (CreateHiddenService)
+//   - Query Tor's internal state (GetInfo)
+//   - Monitor Tor events and status
+//
+// Authentication is required before most commands. Use either cookie-based
+// authentication (automatic with StartTorDaemon) or password authentication
+// (for existing Tor instances).
+//
+// Example usage:
+//
+//	auth := tornago.ControlAuthFromCookie("/var/lib/tor/control_auth_cookie")
+//	ctrl, _ := tornago.NewControlClient("127.0.0.1:9051", auth, 5*time.Second)
+//	defer ctrl.Close()
+//
+//	ctrl.Authenticate()
+//	ctrl.NewIdentity(context.Background())  // Request new circuits
 type ControlClient struct {
 	// conn is the underlying TCP connection to the ControlPort.
 	conn net.Conn
@@ -87,7 +106,17 @@ func (c *ControlClient) Authenticate() error {
 	return nil
 }
 
-// NewIdentity issues SIGNAL NEWNYM to rotate Tor circuits.
+// NewIdentity issues SIGNAL NEWNYM to rotate Tor circuits, causing Tor to
+// close existing circuits and build new ones. This effectively gives you a
+// new exit IP address for subsequent requests.
+//
+// This is useful for:
+//   - Avoiding rate limiting or IP-based blocks
+//   - Getting a fresh identity for privacy reasons
+//   - Testing behavior with different exit nodes
+//
+// Note: Tor rate-limits NEWNYM requests to once per 10 seconds by default.
+// Calling this more frequently will not create new circuits.
 func (c *ControlClient) NewIdentity(ctx context.Context) error {
 	if err := c.ensureAuthenticated(); err != nil {
 		return err
