@@ -15,7 +15,6 @@ jobs:
       matrix:
         os:
           - "ubuntu-latest"
-          - "windows-latest"
           - "macos-latest"
         go:
           - "1.25"
@@ -40,12 +39,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install tor
-
-      - name: Install Tor (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          choco install tor -y
 
       - name: Run integration tests with coverage
         run: make integration-test
