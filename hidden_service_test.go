@@ -1,7 +1,13 @@
 package tornago
 
 import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewHiddenServiceConfig(t *testing.T) {
@@ -349,6 +355,369 @@ func TestHiddenServiceConfigAccessors(t *testing.T) {
 		auths := cfg.ClientAuth()
 		if len(auths) != 0 {
 			t.Errorf("expected 0 client auths, got %d", len(auths))
+		}
+	})
+}
+
+func TestSaveAndLoadPrivateKey(t *testing.T) {
+	t.Run("should save and load private key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		keyPath := filepath.Join(tmpDir, "test.key")
+
+		hs := &hiddenService{
+			privateKey: "ED25519-V3:testprivatekeydata",
+		}
+
+		err := hs.SavePrivateKey(keyPath)
+		if err != nil {
+			t.Fatalf("SavePrivateKey failed: %v", err)
+		}
+
+		// Verify file exists with correct permissions
+		info, err := os.Stat(keyPath)
+		if err != nil {
+			t.Fatalf("key file not created: %v", err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
+		}
+
+		// Load the key back
+		loadedKey, err := LoadPrivateKey(keyPath)
+		if err != nil {
+			t.Fatalf("LoadPrivateKey failed: %v", err)
+		}
+		if loadedKey != "ED25519-V3:testprivatekeydata" {
+			t.Errorf("expected key to match, got %s", loadedKey)
+		}
+	})
+
+	t.Run("should return error for empty private key", func(t *testing.T) {
+		hs := &hiddenService{privateKey: ""}
+		err := hs.SavePrivateKey("/tmp/test.key")
+		if err == nil {
+			t.Error("expected error for empty private key")
+		}
+	})
+
+	t.Run("should return error for non-existent file", func(t *testing.T) {
+		_, err := LoadPrivateKey("/nonexistent/path/key")
+		if err == nil {
+			t.Error("expected error for non-existent file")
+		}
+	})
+}
+
+func TestWithHiddenServicePrivateKeyFile(t *testing.T) {
+	t.Run("should load key from file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		keyPath := filepath.Join(tmpDir, "test.key")
+
+		// Write a test key
+		err := os.WriteFile(keyPath, []byte("ED25519-V3:testkey"), 0600)
+		if err != nil {
+			t.Fatalf("failed to write test key: %v", err)
+		}
+
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServicePrivateKeyFile(keyPath),
+			WithHiddenServicePort(80, 8080),
+		)
+		if err != nil {
+			t.Fatalf("failed to create config: %v", err)
+		}
+
+		if cfg.PrivateKey() != "ED25519-V3:testkey" {
+			t.Errorf("expected key to be loaded, got %s", cfg.PrivateKey())
+		}
+	})
+
+	t.Run("should ignore non-existent file", func(t *testing.T) {
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServicePrivateKeyFile("/nonexistent/key"),
+			WithHiddenServicePort(80, 8080),
+		)
+		if err != nil {
+			t.Fatalf("failed to create config: %v", err)
+		}
+
+		if cfg.PrivateKey() != "" {
+			t.Errorf("expected empty key for non-existent file, got %s", cfg.PrivateKey())
+		}
+	})
+}
+
+func TestPortHelpers(t *testing.T) {
+	t.Run("WithHiddenServiceSamePort should map port to itself", func(t *testing.T) {
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServiceSamePort(8080),
+		)
+		if err != nil {
+			t.Fatalf("failed to create config: %v", err)
+		}
+
+		ports := cfg.Ports()
+		if ports[8080] != 8080 {
+			t.Errorf("expected port 8080 mapped to 8080, got %d", ports[8080])
+		}
+	})
+
+	t.Run("WithHiddenServiceHTTP should map port 80", func(t *testing.T) {
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServiceHTTP(3000),
+		)
+		if err != nil {
+			t.Fatalf("failed to create config: %v", err)
+		}
+
+		ports := cfg.Ports()
+		if ports[80] != 3000 {
+			t.Errorf("expected port 80 mapped to 3000, got %d", ports[80])
+		}
+	})
+
+	t.Run("WithHiddenServiceHTTPS should map port 443", func(t *testing.T) {
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServiceHTTPS(3443),
+		)
+		if err != nil {
+			t.Fatalf("failed to create config: %v", err)
+		}
+
+		ports := cfg.Ports()
+		if ports[443] != 3443 {
+			t.Errorf("expected port 443 mapped to 3443, got %d", ports[443])
+		}
+	})
+}
+
+func TestWithHiddenServicePortNilMap(t *testing.T) {
+	t.Run("should initialize nil targetPort map", func(t *testing.T) {
+		cfg := &HiddenServiceConfig{targetPort: nil}
+		opt := WithHiddenServicePort(80, 8080)
+		opt(cfg)
+		if cfg.targetPort[80] != 8080 {
+			t.Errorf("expected port 80 mapped to 8080, got %d", cfg.targetPort[80])
+		}
+	})
+}
+
+func TestWithHiddenServicePortsNilMap(t *testing.T) {
+	t.Run("should initialize nil targetPort map", func(t *testing.T) {
+		cfg := &HiddenServiceConfig{targetPort: nil}
+		opt := WithHiddenServicePorts(map[int]int{80: 8080, 443: 8443})
+		opt(cfg)
+		if cfg.targetPort[80] != 8080 {
+			t.Errorf("expected port 80 mapped to 8080, got %d", cfg.targetPort[80])
+		}
+		if cfg.targetPort[443] != 8443 {
+			t.Errorf("expected port 443 mapped to 8443, got %d", cfg.targetPort[443])
+		}
+	})
+}
+
+func TestHiddenServiceRemoveNilContext(t *testing.T) {
+	t.Run("should handle nil context", func(_ *testing.T) {
+		// Create a mock control client
+		hs := &hiddenService{
+			control: &ControlClient{authenticated: false},
+			address: "test.onion",
+		}
+		// This will fail at authentication, but proves nil ctx is handled
+		//nolint:staticcheck,errcheck,gosec // testing nil context handling
+		hs.Remove(nil)
+		// Error is expected because we don't have a real connection
+		// but nil context should be handled without panic
+	})
+}
+
+func TestValidateHiddenServiceConfigEmptyKeyType(t *testing.T) {
+	t.Run("should reject empty key type", func(t *testing.T) {
+		cfg := HiddenServiceConfig{
+			keyType:    "",
+			targetPort: map[int]int{80: 8080},
+		}
+		err := validateHiddenServiceConfig(cfg)
+		if err == nil {
+			t.Error("expected error for empty key type")
+		}
+	})
+}
+
+func TestGetHiddenServiceStatus(t *testing.T) {
+	t.Run("should fail when not authenticated", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf)                                   //nolint:errcheck
+			_, _ = conn.Write([]byte("515 Bad authentication\r\n")) //nolint:errcheck
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		_, err = client.GetHiddenServiceStatus(context.Background())
+		if err == nil {
+			t.Error("expected authentication error")
+		}
+	})
+
+	t.Run("should return services on success", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO onions/current") {
+					_, _ = conn.Write([]byte("250-onions/current=abc123\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		services, err := client.GetHiddenServiceStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetHiddenServiceStatus failed: %v", err)
+		}
+		if len(services) != 1 {
+			t.Errorf("expected 1 service, got %d", len(services))
+		}
+	})
+
+	t.Run("should return empty list on error", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO onions/current") {
+					_, _ = conn.Write([]byte("552 Unrecognized key\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		services, err := client.GetHiddenServiceStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetHiddenServiceStatus should not return error: %v", err)
+		}
+		if len(services) != 0 {
+			t.Errorf("expected 0 services, got %d", len(services))
+		}
+	})
+
+	t.Run("should handle empty onions/current", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO onions/current") {
+					_, _ = conn.Write([]byte("250-onions/current=\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		services, err := client.GetHiddenServiceStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetHiddenServiceStatus failed: %v", err)
+		}
+		if len(services) != 0 {
+			t.Errorf("expected 0 services, got %d", len(services))
 		}
 	})
 }

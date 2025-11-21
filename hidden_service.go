@@ -3,6 +3,8 @@ package tornago
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -100,6 +102,24 @@ func WithHiddenServiceClientAuth(auth ...HiddenServiceAuth) HiddenServiceOption 
 	}
 }
 
+// WithHiddenServiceSamePort maps a port to itself (virtualPort == targetPort).
+// This is a convenience for common cases where you don't need port translation.
+func WithHiddenServiceSamePort(port int) HiddenServiceOption {
+	return WithHiddenServicePort(port, port)
+}
+
+// WithHiddenServiceHTTP maps port 80 to the specified local port.
+// This is a convenience for hosting HTTP services.
+func WithHiddenServiceHTTP(localPort int) HiddenServiceOption {
+	return WithHiddenServicePort(80, localPort)
+}
+
+// WithHiddenServiceHTTPS maps port 443 to the specified local port.
+// This is a convenience for hosting HTTPS services.
+func WithHiddenServiceHTTPS(localPort int) HiddenServiceOption {
+	return WithHiddenServicePort(443, localPort)
+}
+
 // HiddenServiceAuth describes Tor v3 client authorization information.
 type HiddenServiceAuth struct {
 	// clientName is the name assigned to this authorized client.
@@ -154,6 +174,8 @@ type HiddenService interface {
 	ClientAuth() []HiddenServiceAuth
 	// Remove deletes this hidden service from Tor. The .onion address becomes inaccessible.
 	Remove(ctx context.Context) error
+	// SavePrivateKey saves the private key to a file for later reuse.
+	SavePrivateKey(path string) error
 }
 
 type hiddenService struct {
@@ -254,6 +276,8 @@ func (c *ControlClient) CreateHiddenService(ctx context.Context, cfg HiddenServi
 	}, nil
 }
 
+// normalizeHiddenServiceConfig applies defaults and validates the configuration.
+// It returns a normalized copy of the configuration or an error if validation fails.
 func normalizeHiddenServiceConfig(cfg HiddenServiceConfig) (HiddenServiceConfig, error) {
 	cfg = applyHiddenServiceDefaults(cfg)
 	if err := validateHiddenServiceConfig(cfg); err != nil {
@@ -264,6 +288,8 @@ func normalizeHiddenServiceConfig(cfg HiddenServiceConfig) (HiddenServiceConfig,
 	return cfg, nil
 }
 
+// applyHiddenServiceDefaults sets default values for unset configuration fields.
+// Currently sets keyType to "ED25519-V3" if not specified.
 func applyHiddenServiceDefaults(cfg HiddenServiceConfig) HiddenServiceConfig {
 	if cfg.keyType == "" {
 		cfg.keyType = "ED25519-V3"
@@ -271,6 +297,9 @@ func applyHiddenServiceDefaults(cfg HiddenServiceConfig) HiddenServiceConfig {
 	return cfg
 }
 
+// validateHiddenServiceConfig checks that all required fields are set and valid.
+// Returns an error if keyType is empty, no ports are configured, ports are out of range,
+// or client auth entries are incomplete.
 func validateHiddenServiceConfig(cfg HiddenServiceConfig) error {
 	if cfg.keyType == "" {
 		return newError(ErrInvalidConfig, "validateHiddenServiceConfig", "KeyType is empty", nil)
@@ -297,6 +326,102 @@ func validateHiddenServiceConfig(cfg HiddenServiceConfig) error {
 	return nil
 }
 
+// HiddenServiceStatus represents the status of a hidden service.
+type HiddenServiceStatus struct {
+	// ServiceID is the onion address without .onion suffix.
+	ServiceID string
+	// Ports lists the configured port mappings.
+	Ports []string
+}
+
+// GetHiddenServiceStatus retrieves information about all active hidden services.
+// This is useful for monitoring and debugging hidden service configurations.
+func (c *ControlClient) GetHiddenServiceStatus(ctx context.Context) ([]HiddenServiceStatus, error) {
+	if err := c.ensureAuthenticated(); err != nil {
+		return nil, err
+	}
+	lines, err := c.execCommand(ctx, "GETINFO onions/current")
+	if err != nil {
+		// If no hidden services exist, Tor may return an error.
+		// We treat this as "no services" rather than an error.
+		return []HiddenServiceStatus{}, nil //nolint:nilerr // expected behavior when no services exist
+	}
+
+	var services []HiddenServiceStatus
+	for _, line := range lines {
+		if strings.HasPrefix(line, "onions/current=") {
+			ids := strings.TrimPrefix(line, "onions/current=")
+			if ids == "" {
+				continue
+			}
+			for _, id := range strings.Split(ids, "\n") {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					services = append(services, HiddenServiceStatus{ServiceID: id})
+				}
+			}
+		}
+	}
+	return services, nil
+}
+
+// SavePrivateKey saves the hidden service's private key to a file.
+// The key can later be loaded with LoadPrivateKey to recreate the same .onion address.
+// The file is created with 0600 permissions for security.
+//
+// Example:
+//
+//	hs, _ := ctrl.CreateHiddenService(ctx, cfg)
+//	if err := hs.SavePrivateKey("/path/to/key"); err != nil {
+//	    log.Fatal(err)
+//	}
+func (h *hiddenService) SavePrivateKey(path string) error {
+	if h.privateKey == "" {
+		return newError(ErrInvalidConfig, "SavePrivateKey", "private key is empty", nil)
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return newError(ErrIO, "SavePrivateKey", "failed to create directory", err)
+	}
+	// #nosec G306 -- 0600 is secure for private key files
+	if err := os.WriteFile(path, []byte(h.privateKey), 0600); err != nil {
+		return newError(ErrIO, "SavePrivateKey", "failed to write private key", err)
+	}
+	return nil
+}
+
+// LoadPrivateKey reads a private key from a file and returns it as a string
+// suitable for use with WithHiddenServicePrivateKey.
+//
+// Example:
+//
+//	key, _ := tornago.LoadPrivateKey("/path/to/key")
+//	cfg, _ := tornago.NewHiddenServiceConfig(
+//	    tornago.WithHiddenServicePrivateKey(key),
+//	    tornago.WithHiddenServicePort(80, 8080),
+//	)
+func LoadPrivateKey(path string) (string, error) {
+	// #nosec G304 -- path is user-provided and expected to be trusted
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return "", newError(ErrIO, "LoadPrivateKey", "failed to read private key", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// WithHiddenServicePrivateKeyFile loads a private key from a file and uses it.
+// This is a convenience option that combines LoadPrivateKey and WithHiddenServicePrivateKey.
+func WithHiddenServicePrivateKeyFile(path string) HiddenServiceOption {
+	return func(cfg *HiddenServiceConfig) {
+		key, err := LoadPrivateKey(path)
+		if err == nil && key != "" {
+			cfg.privateKey = key
+		}
+	}
+}
+
+// buildAddOnionCommand constructs the ADD_ONION command string from the configuration.
+// The command format is: ADD_ONION KeyType:Key Port=virt,target [ClientAuth=name:key]
 func buildAddOnionCommand(cfg HiddenServiceConfig) string {
 	key := cfg.KeyType()
 	if cfg.PrivateKey() == "" {
