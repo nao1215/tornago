@@ -100,12 +100,8 @@ Log notice stdout
 		t.Fatalf("tornago: failed to start tor daemon: %v", err)
 	}
 
-	// Wait for Tor to start before accessing control port
-	// Give Tor time to initialize and create the cookie file
-	time.Sleep(20 * time.Second)
-
-	// Wait for cookie file
-	if err := waitForCookieFile(cookiePath, 30*time.Second); err != nil {
+	// Wait for cookie file (Tor creates it during startup)
+	if err := waitForCookieFile(cookiePath, 60*time.Second); err != nil {
 		t.Logf("tornago: skipping integration test because control cookie is unavailable: %v", err)
 		t.SkipNow()
 	}
@@ -161,6 +157,8 @@ Log notice stdout
 	}
 }
 
+// waitForCookieFile polls for the existence of the control cookie file at the given path.
+// It returns nil when the file exists and has non-zero size, or an error if the timeout expires.
 func waitForCookieFile(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -172,7 +170,7 @@ func waitForCookieFile(path string, timeout time.Duration) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("timed out waiting for cookie file %s", path)
 }
@@ -237,17 +235,19 @@ func (ts *TestServer) ControlAuth(t *testing.T) ControlAuth {
 	return ts.controlAuth
 }
 
+// waitForTorBootstrap polls Tor's control port until bootstrap reaches 100% or timeout.
+// It returns nil on successful bootstrap, or an error describing the last failure.
 func waitForTorBootstrap(controlAddr string, auth ControlAuth, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		client, err := NewControlClient(controlAddr, auth, 10*time.Second)
+		client, err := NewControlClient(controlAddr, auth, 5*time.Second)
 		if err != nil {
 			lastErr = err
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		info, infoErr := client.GetInfo(ctx, "status/bootstrap-phase")
 		cancel()
 		_ = client.Close()
@@ -263,7 +263,7 @@ func waitForTorBootstrap(controlAddr string, auth ControlAuth, timeout time.Dura
 		} else {
 			lastErr = infoErr
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 	if lastErr == nil {
 		lastErr = errors.New("timed out waiting for tor bootstrap")
@@ -271,6 +271,8 @@ func waitForTorBootstrap(controlAddr string, auth ControlAuth, timeout time.Dura
 	return fmt.Errorf("tor failed to bootstrap: %w", lastErr)
 }
 
+// parseBootstrapProgress extracts the PROGRESS value from a Tor bootstrap status string.
+// Returns the progress percentage and true if successfully parsed, or 0 and false otherwise.
 func parseBootstrapProgress(info string) (int, bool) {
 	idx := strings.LastIndex(info, "PROGRESS=")
 	if idx < 0 {
@@ -291,6 +293,8 @@ func parseBootstrapProgress(info string) (int, bool) {
 	return progress, true
 }
 
+// startExternalTestServer creates a TestServer using an externally running Tor instance.
+// It expects TORNAGO_TOR_SOCKS and either TORNAGO_TOR_COOKIE or TORNAGO_TOR_PASSWORD env vars.
 func startExternalTestServer(t *testing.T, controlAddr string) *TestServer {
 	t.Helper()
 	socksAddr := os.Getenv("TORNAGO_TOR_SOCKS")
