@@ -126,33 +126,29 @@ func main() {
 
 	fmt.Printf("\nLocal HTTP server started on http://%s\n", localAddr)
 
-	// Step 3: Get control authentication
+	// Step 3: Get control authentication and create ControlClient directly
 	fmt.Println("\nObtaining Tor control authentication...")
-	_, cookiePath, err := tornago.ControlAuthFromTor(torProcess.ControlAddr(), 30*time.Second)
+	auth, _, err := tornago.ControlAuthFromTor(torProcess.ControlAddr(), 30*time.Second)
 	if err != nil {
 		log.Fatalf("Failed to get control auth: %v", err)
 	}
 
-	// Step 4: Create Hidden Service
-	clientCfg, err := tornago.NewClientConfig(
-		tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-		tornago.WithClientControlAddr(torProcess.ControlAddr()),
-		tornago.WithClientControlCookie(cookiePath),
+	// Step 4: Create ControlClient directly (instead of via tornago.Client)
+	controlClient, err := tornago.NewControlClient(
+		torProcess.ControlAddr(),
+		auth,
+		30*time.Second,
 	)
 	if err != nil {
-		log.Fatalf("Failed to create client config: %v", err)
+		log.Fatalf("Failed to create control client: %v", err)
 	}
+	defer controlClient.Close()
 
-	client, err := tornago.NewClient(clientCfg)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
-	defer client.Close()
-
-	if err := client.Control().Authenticate(); err != nil {
+	if err := controlClient.Authenticate(); err != nil {
 		log.Fatalf("Failed to authenticate with Tor: %v", err)
 	}
 
+	// Step 5: Create Hidden Service
 	hsCfg, err := tornago.NewHiddenServiceConfig(
 		tornago.WithHiddenServicePort(80, 8080), // Map onion port 80 to local port 8080
 	)
@@ -161,7 +157,7 @@ func main() {
 	}
 
 	fmt.Println("\nCreating Hidden Service...")
-	hs, err := client.Control().CreateHiddenService(context.Background(), hsCfg)
+	hs, err := controlClient.CreateHiddenService(context.Background(), hsCfg)
 	if err != nil {
 		log.Fatalf("Failed to create hidden service: %v", err)
 	}
