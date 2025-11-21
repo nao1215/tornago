@@ -913,3 +913,812 @@ func TestGetInfoError(t *testing.T) {
 		}
 	})
 }
+
+func TestGetConf(t *testing.T) {
+	t.Run("should get configuration value", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETCONF SocksPort") {
+					_, _ = conn.Write([]byte("250-SocksPort=9050\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		val, err := client.GetConf(context.Background(), "SocksPort")
+		if err != nil {
+			t.Fatalf("GetConf failed: %v", err)
+		}
+		if val != "9050" {
+			t.Errorf("expected 9050, got %s", val)
+		}
+	})
+
+	t.Run("should return error for empty key", func(t *testing.T) {
+		client := &ControlClient{authenticated: true}
+		_, err := client.GetConf(context.Background(), "")
+		if err == nil {
+			t.Error("expected error for empty key")
+		}
+	})
+}
+
+func TestSetConf(t *testing.T) {
+	t.Run("should set configuration value", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "SETCONF") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		err = client.SetConf(context.Background(), "MaxCircuitDirtiness", "600")
+		if err != nil {
+			t.Fatalf("SetConf failed: %v", err)
+		}
+	})
+
+	t.Run("should return error for empty key", func(t *testing.T) {
+		client := &ControlClient{authenticated: true}
+		err := client.SetConf(context.Background(), "", "value")
+		if err == nil {
+			t.Error("expected error for empty key")
+		}
+	})
+}
+
+func TestResetConf(t *testing.T) {
+	t.Run("should return error for empty key", func(t *testing.T) {
+		client := &ControlClient{authenticated: true}
+		err := client.ResetConf(context.Background(), "")
+		if err == nil {
+			t.Error("expected error for empty key")
+		}
+	})
+}
+
+func TestParseCircuitLine(t *testing.T) {
+	t.Run("should parse circuit line with all fields", func(t *testing.T) {
+		line := "1 BUILT $AAAA,$BBBB,$CCCC BUILD_FLAGS=IS_INTERNAL,NEED_CAPACITY PURPOSE=GENERAL TIME_CREATED=2024-01-01T00:00:00"
+		circuit := parseCircuitLine(line)
+
+		if circuit.ID != "1" {
+			t.Errorf("expected ID 1, got %s", circuit.ID)
+		}
+		if circuit.Status != "BUILT" {
+			t.Errorf("expected status BUILT, got %s", circuit.Status)
+		}
+		if len(circuit.Path) != 3 {
+			t.Errorf("expected 3 path elements, got %d", len(circuit.Path))
+		}
+		if circuit.Purpose != "GENERAL" {
+			t.Errorf("expected purpose GENERAL, got %s", circuit.Purpose)
+		}
+	})
+
+	t.Run("should handle minimal circuit line", func(t *testing.T) {
+		line := "2 LAUNCHED"
+		circuit := parseCircuitLine(line)
+		if circuit.ID != "2" || circuit.Status != "LAUNCHED" {
+			t.Errorf("unexpected result: %+v", circuit)
+		}
+	})
+
+	t.Run("should return empty for invalid line", func(t *testing.T) {
+		line := "invalid"
+		circuit := parseCircuitLine(line)
+		if circuit.ID != "" {
+			t.Errorf("expected empty circuit for invalid line")
+		}
+	})
+}
+
+func TestParseStreamLine(t *testing.T) {
+	t.Run("should parse stream line with all fields", func(t *testing.T) {
+		line := "123 SUCCEEDED 5 example.com:443 PURPOSE=USER"
+		stream := parseStreamLine(line)
+
+		if stream.ID != "123" {
+			t.Errorf("expected ID 123, got %s", stream.ID)
+		}
+		if stream.Status != "SUCCEEDED" {
+			t.Errorf("expected status SUCCEEDED, got %s", stream.Status)
+		}
+		if stream.CircuitID != "5" {
+			t.Errorf("expected CircuitID 5, got %s", stream.CircuitID)
+		}
+		if stream.Target != "example.com:443" {
+			t.Errorf("expected target example.com:443, got %s", stream.Target)
+		}
+		if stream.Purpose != "USER" {
+			t.Errorf("expected purpose USER, got %s", stream.Purpose)
+		}
+	})
+
+	t.Run("should return empty for invalid line", func(t *testing.T) {
+		line := "too short"
+		stream := parseStreamLine(line)
+		if stream.ID != "" {
+			t.Errorf("expected empty stream for invalid line")
+		}
+	})
+}
+
+func TestMapAddress(t *testing.T) {
+	t.Run("should return error for empty addresses", func(t *testing.T) {
+		client := &ControlClient{authenticated: true}
+		_, err := client.MapAddress(context.Background(), "", "target")
+		if err == nil {
+			t.Error("expected error for empty fromAddr")
+		}
+		_, err = client.MapAddress(context.Background(), "source", "")
+		if err == nil {
+			t.Error("expected error for empty toAddr")
+		}
+	})
+
+	t.Run("should map address successfully", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "MAPADDRESS") {
+					_, _ = conn.Write([]byte("250-source.virtual=target.onion\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		result, err := client.MapAddress(context.Background(), "source.virtual", "target.onion")
+		if err != nil {
+			t.Fatalf("MapAddress failed: %v", err)
+		}
+		if result != "target.onion" {
+			t.Errorf("expected target.onion, got %s", result)
+		}
+	})
+
+	t.Run("should return toAddr when response has no mapping", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "MAPADDRESS") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		result, err := client.MapAddress(context.Background(), "source", "fallback.onion")
+		if err != nil {
+			t.Fatalf("MapAddress failed: %v", err)
+		}
+		if result != "fallback.onion" {
+			t.Errorf("expected fallback.onion, got %s", result)
+		}
+	})
+}
+
+func TestNewControlClientErrors(t *testing.T) {
+	t.Run("should return error for empty address", func(t *testing.T) {
+		_, err := NewControlClient("", ControlAuth{}, 5*time.Second)
+		if err == nil {
+			t.Error("expected error for empty address")
+		}
+	})
+
+	t.Run("should use default timeout for zero or negative timeout", func(t *testing.T) {
+		// This test verifies the timeout default is applied.
+		// Since we can't connect, it will fail, but we verify it doesn't panic.
+		_, err := NewControlClient("127.0.0.1:1", ControlAuth{}, 0)
+		if err == nil {
+			t.Error("expected connection error")
+		}
+		_, err = NewControlClient("127.0.0.1:1", ControlAuth{}, -1*time.Second)
+		if err == nil {
+			t.Error("expected connection error")
+		}
+	})
+}
+
+func TestGetInfoEmptyKey(t *testing.T) {
+	t.Run("should return error for empty key", func(t *testing.T) {
+		client := &ControlClient{authenticated: true}
+		_, err := client.GetInfo(context.Background(), "")
+		if err == nil {
+			t.Error("expected error for empty key")
+		}
+	})
+}
+
+func TestGetConfKeyNotFound(t *testing.T) {
+	t.Run("should return error when key not found in response", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETCONF") {
+					// Return response without the requested key
+					_, _ = conn.Write([]byte("250-OtherKey=value\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		_, err = client.GetConf(context.Background(), "RequestedKey")
+		if err == nil {
+			t.Error("expected error when key not found")
+		}
+	})
+}
+
+func TestResetConfPaths(t *testing.T) {
+	t.Run("should fail authentication when not authenticated", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf) //nolint:errcheck
+			// Return auth failure
+			_, _ = conn.Write([]byte("515 Bad authentication\r\n")) //nolint:errcheck
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		err = client.ResetConf(context.Background(), "SomeKey")
+		if err == nil {
+			t.Error("expected authentication error")
+		}
+	})
+
+	t.Run("should reset conf successfully", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "RESETCONF") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		err = client.ResetConf(context.Background(), "MaxCircuitDirtiness")
+		if err != nil {
+			t.Fatalf("ResetConf failed: %v", err)
+		}
+	})
+}
+
+func TestSaveConf(t *testing.T) {
+	t.Run("should fail when not authenticated", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf)                                   //nolint:errcheck
+			_, _ = conn.Write([]byte("515 Bad authentication\r\n")) //nolint:errcheck
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		err = client.SaveConf(context.Background())
+		if err == nil {
+			t.Error("expected authentication error")
+		}
+	})
+
+	t.Run("should save conf successfully", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "SAVECONF") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		err = client.SaveConf(context.Background())
+		if err != nil {
+			t.Fatalf("SaveConf failed: %v", err)
+		}
+	})
+}
+
+func TestGetCircuitStatus(t *testing.T) {
+	t.Run("should fail when not authenticated", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf)                                   //nolint:errcheck
+			_, _ = conn.Write([]byte("515 Bad authentication\r\n")) //nolint:errcheck
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		_, err = client.GetCircuitStatus(context.Background())
+		if err == nil {
+			t.Error("expected authentication error")
+		}
+	})
+
+	t.Run("should get circuit status successfully", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO circuit-status") {
+					response := "250+circuit-status=\r\n"
+					response += "1 BUILT $AAA,$BBB PURPOSE=GENERAL\r\n"
+					response += "2 LAUNCHED PURPOSE=HS_CLIENT_INTRO\r\n"
+					response += ".\r\n"
+					response += "250 OK\r\n"
+					_, _ = conn.Write([]byte(response)) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		circuits, err := client.GetCircuitStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetCircuitStatus failed: %v", err)
+		}
+		if len(circuits) != 2 {
+			t.Errorf("expected 2 circuits, got %d", len(circuits))
+		}
+	})
+
+	t.Run("should handle empty circuit status", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO circuit-status") {
+					_, _ = conn.Write([]byte("250-circuit-status=\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		circuits, err := client.GetCircuitStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetCircuitStatus failed: %v", err)
+		}
+		if len(circuits) != 0 {
+			t.Errorf("expected 0 circuits, got %d", len(circuits))
+		}
+	})
+}
+
+func TestGetStreamStatus(t *testing.T) {
+	t.Run("should fail when not authenticated", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf)                                   //nolint:errcheck
+			_, _ = conn.Write([]byte("515 Bad authentication\r\n")) //nolint:errcheck
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		_, err = client.GetStreamStatus(context.Background())
+		if err == nil {
+			t.Error("expected authentication error")
+		}
+	})
+
+	t.Run("should get stream status successfully", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO stream-status") {
+					response := "250+stream-status=\r\n"
+					response += "1 SUCCEEDED 5 example.com:443 PURPOSE=USER\r\n"
+					response += "2 NEW 0 test.com:80\r\n"
+					response += ".\r\n"
+					response += "250 OK\r\n"
+					_, _ = conn.Write([]byte(response)) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		streams, err := client.GetStreamStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetStreamStatus failed: %v", err)
+		}
+		if len(streams) != 2 {
+			t.Errorf("expected 2 streams, got %d", len(streams))
+		}
+	})
+
+	t.Run("should handle empty stream status", func(t *testing.T) {
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					return
+				}
+				command := string(buf[:n])
+				if strings.Contains(command, "AUTHENTICATE") {
+					_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+					continue
+				}
+				if strings.Contains(command, "GETINFO stream-status") {
+					_, _ = conn.Write([]byte("250-stream-status=\r\n250 OK\r\n")) //nolint:errcheck
+					return
+				}
+			}
+		}()
+
+		client, err := NewControlClient(listener.Addr().String(), ControlAuth{}, 2*time.Second)
+		if err != nil {
+			t.Fatalf("failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		streams, err := client.GetStreamStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetStreamStatus failed: %v", err)
+		}
+		if len(streams) != 0 {
+			t.Errorf("expected 0 streams, got %d", len(streams))
+		}
+	})
+}

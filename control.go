@@ -135,6 +135,10 @@ func (c *ControlClient) GetInfoNoAuth(ctx context.Context, key string) (string, 
 	return c.getInfo(ctx, key, false)
 }
 
+// getInfo is the internal implementation for GetInfo and GetInfoNoAuth.
+// It executes the GETINFO command and parses the response to extract the value
+// associated with the given key. If requireAuth is true, it ensures the client
+// is authenticated before sending the command.
 func (c *ControlClient) getInfo(ctx context.Context, key string, requireAuth bool) (string, error) {
 	if key == "" {
 		return "", newError(ErrInvalidConfig, opControlClient, "GetInfo key is empty", nil)
@@ -159,6 +163,242 @@ func (c *ControlClient) getInfo(ctx context.Context, key string, requireAuth boo
 		return "", newError(ErrControlRequestFail, opControlClient, "key not found in GETINFO response", nil)
 	}
 	return result, nil
+}
+
+// GetConf retrieves the current value of a Tor configuration option.
+// The key should be a valid Tor configuration option name (e.g., "SocksPort", "ORPort").
+//
+// Example:
+//
+//	socksPort, err := ctrl.GetConf(ctx, "SocksPort")
+func (c *ControlClient) GetConf(ctx context.Context, key string) (string, error) {
+	if key == "" {
+		return "", newError(ErrInvalidConfig, opControlClient, "GetConf key is empty", nil)
+	}
+	if err := c.ensureAuthenticated(); err != nil {
+		return "", err
+	}
+	lines, err := c.execCommand(ctx, "GETCONF "+key)
+	if err != nil {
+		return "", err
+	}
+	prefix := key + "="
+	for _, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix), nil
+		}
+	}
+	return "", newError(ErrControlRequestFail, opControlClient, "key not found in GETCONF response", nil)
+}
+
+// SetConf sets a Tor configuration option to the specified value.
+// The change takes effect immediately but is not persisted to the torrc file.
+// To persist changes, call SaveConf after SetConf.
+//
+// Example:
+//
+//	err := ctrl.SetConf(ctx, "MaxCircuitDirtiness", "600")
+func (c *ControlClient) SetConf(ctx context.Context, key, value string) error {
+	if key == "" {
+		return newError(ErrInvalidConfig, opControlClient, "SetConf key is empty", nil)
+	}
+	if err := c.ensureAuthenticated(); err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("SETCONF %s=%s", key, quotedString(value))
+	_, err := c.execCommand(ctx, cmd)
+	return err
+}
+
+// ResetConf resets a Tor configuration option to its default value.
+//
+// Example:
+//
+//	err := ctrl.ResetConf(ctx, "MaxCircuitDirtiness")
+func (c *ControlClient) ResetConf(ctx context.Context, key string) error {
+	if key == "" {
+		return newError(ErrInvalidConfig, opControlClient, "ResetConf key is empty", nil)
+	}
+	if err := c.ensureAuthenticated(); err != nil {
+		return err
+	}
+	_, err := c.execCommand(ctx, "RESETCONF "+key)
+	return err
+}
+
+// SaveConf saves the current configuration to the torrc file.
+// This persists any changes made with SetConf.
+func (c *ControlClient) SaveConf(ctx context.Context) error {
+	if err := c.ensureAuthenticated(); err != nil {
+		return err
+	}
+	_, err := c.execCommand(ctx, "SAVECONF")
+	return err
+}
+
+// CircuitInfo represents information about a Tor circuit.
+type CircuitInfo struct {
+	// ID is the circuit identifier.
+	ID string
+	// Status is the circuit status (e.g., "BUILT", "EXTENDED", "LAUNCHED").
+	Status string
+	// Path is the list of relay fingerprints in the circuit.
+	Path []string
+	// BuildFlags contains circuit build flags.
+	BuildFlags []string
+	// Purpose is the circuit purpose (e.g., "GENERAL", "HS_CLIENT_INTRO").
+	Purpose string
+	// TimeCreated is when the circuit was created.
+	TimeCreated string
+}
+
+// GetCircuitStatus retrieves information about all current Tor circuits.
+// This is useful for monitoring circuit health and debugging connectivity issues.
+func (c *ControlClient) GetCircuitStatus(ctx context.Context) ([]CircuitInfo, error) {
+	if err := c.ensureAuthenticated(); err != nil {
+		return nil, err
+	}
+	lines, err := c.execCommand(ctx, "GETINFO circuit-status")
+	if err != nil {
+		return nil, err
+	}
+
+	var circuits []CircuitInfo
+	for _, line := range lines {
+		if line == "circuit-status=" || line == "" {
+			continue
+		}
+		circuit := parseCircuitLine(line)
+		if circuit.ID != "" {
+			circuits = append(circuits, circuit)
+		}
+	}
+	return circuits, nil
+}
+
+// parseCircuitLine parses a single line from the circuit-status response
+// and returns a CircuitInfo struct. The line format is:
+// "CircuitID Status Path BuildFlags Purpose TimeCreated"
+// Returns an empty CircuitInfo if the line cannot be parsed.
+func parseCircuitLine(line string) CircuitInfo {
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return CircuitInfo{}
+	}
+
+	circuit := CircuitInfo{
+		ID:     parts[0],
+		Status: parts[1],
+	}
+
+	if len(parts) > 2 && !strings.Contains(parts[2], "=") {
+		circuit.Path = strings.Split(parts[2], ",")
+	}
+
+	for _, part := range parts[2:] {
+		if strings.HasPrefix(part, "BUILD_FLAGS=") {
+			flags := strings.TrimPrefix(part, "BUILD_FLAGS=")
+			circuit.BuildFlags = strings.Split(flags, ",")
+		} else if strings.HasPrefix(part, "PURPOSE=") {
+			circuit.Purpose = strings.TrimPrefix(part, "PURPOSE=")
+		} else if strings.HasPrefix(part, "TIME_CREATED=") {
+			circuit.TimeCreated = strings.TrimPrefix(part, "TIME_CREATED=")
+		}
+	}
+	return circuit
+}
+
+// StreamInfo represents information about a Tor stream.
+type StreamInfo struct {
+	// ID is the stream identifier.
+	ID string
+	// Status is the stream status (e.g., "SUCCEEDED", "NEW", "SENTCONNECT").
+	Status string
+	// CircuitID is the circuit this stream is attached to.
+	CircuitID string
+	// Target is the destination address:port.
+	Target string
+	// Purpose is the stream purpose.
+	Purpose string
+}
+
+// GetStreamStatus retrieves information about all current Tor streams.
+// This is useful for monitoring active connections through Tor.
+func (c *ControlClient) GetStreamStatus(ctx context.Context) ([]StreamInfo, error) {
+	if err := c.ensureAuthenticated(); err != nil {
+		return nil, err
+	}
+	lines, err := c.execCommand(ctx, "GETINFO stream-status")
+	if err != nil {
+		return nil, err
+	}
+
+	var streams []StreamInfo
+	for _, line := range lines {
+		if line == "stream-status=" || line == "" {
+			continue
+		}
+		stream := parseStreamLine(line)
+		if stream.ID != "" {
+			streams = append(streams, stream)
+		}
+	}
+	return streams, nil
+}
+
+// parseStreamLine parses a single line from the stream-status response
+// and returns a StreamInfo struct. The line format is:
+// "StreamID Status CircuitID Target Purpose"
+// Returns an empty StreamInfo if the line cannot be parsed.
+func parseStreamLine(line string) StreamInfo {
+	parts := strings.Fields(line)
+	if len(parts) < 4 {
+		return StreamInfo{}
+	}
+
+	stream := StreamInfo{
+		ID:        parts[0],
+		Status:    parts[1],
+		CircuitID: parts[2],
+		Target:    parts[3],
+	}
+
+	for _, part := range parts[4:] {
+		if strings.HasPrefix(part, "PURPOSE=") {
+			stream.Purpose = strings.TrimPrefix(part, "PURPOSE=")
+		}
+	}
+	return stream
+}
+
+// MapAddress creates a mapping from a virtual address to a target address.
+// This allows you to access services using custom addresses through Tor.
+//
+// Example:
+//
+//	// Map "mysite" to an onion address
+//	mapped, err := ctrl.MapAddress(ctx, "mysite.virtual", "abcdef...onion")
+func (c *ControlClient) MapAddress(ctx context.Context, fromAddr, toAddr string) (string, error) {
+	if fromAddr == "" || toAddr == "" {
+		return "", newError(ErrInvalidConfig, opControlClient, "MapAddress requires both fromAddr and toAddr", nil)
+	}
+	if err := c.ensureAuthenticated(); err != nil {
+		return "", err
+	}
+	cmd := fmt.Sprintf("MAPADDRESS %s=%s", fromAddr, toAddr)
+	lines, err := c.execCommand(ctx, cmd)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "=") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return parts[1], nil
+			}
+		}
+	}
+	return toAddr, nil
 }
 
 // Close closes the underlying ControlPort connection.
@@ -408,6 +648,10 @@ func WaitForControlPort(controlAddr string, timeout time.Duration) error {
 	return fmt.Errorf("timed out waiting for control port %s to become usable", controlAddr)
 }
 
+// tryGetCookiePath attempts to retrieve the cookie file path from Tor's
+// PROTOCOLINFO response. It establishes a temporary connection to the control
+// port, sends PROTOCOLINFO, and parses the COOKIEFILE from the response.
+// Returns an error if the connection fails or COOKIEFILE is not found.
 func tryGetCookiePath(controlAddr string) (string, error) {
 	client, err := NewControlClient(controlAddr, ControlAuth{}, 2*time.Second)
 	if err != nil {
