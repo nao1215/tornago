@@ -52,6 +52,10 @@ type Client struct {
 	socksDialer *socks5Dialer
 	// retryPolicy controls retry behavior for dial/HTTP operations.
 	retryPolicy retryPolicy
+	// metrics collects request statistics (optional).
+	metrics *MetricsCollector
+	// rateLimiter controls request rate (optional).
+	rateLimiter *RateLimiter
 }
 
 // NewClient builds a Client that routes traffic through the configured Tor server.
@@ -84,6 +88,8 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		cfg:         cfg,
 		socksDialer: dialer,
 		retryPolicy: retry,
+		metrics:     cfg.Metrics(),
+		rateLimiter: cfg.RateLimiter(),
 	}
 
 	transport := &http.Transport{
@@ -120,15 +126,29 @@ func (c *Client) Control() *ControlClient {
 	return c.control
 }
 
+// Metrics returns the metrics collector, which may be nil if not configured.
+func (c *Client) Metrics() *MetricsCollector {
+	return c.metrics
+}
+
 // Dial establishes a TCP connection via Tor's SOCKS5 proxy.
 func (c *Client) Dial(network, addr string) (net.Conn, error) {
 	ctx := context.Background()
+	if c.rateLimiter != nil {
+		if err := c.rateLimiter.Wait(ctx); err != nil {
+			return nil, newError(ErrSocksDialFailed, opClient, "rate limit wait failed", err)
+		}
+	}
+	start := time.Now()
 	var conn net.Conn
 	err := c.withRetry(ctx, c.cfg.DialTimeout(), func(attemptCtx context.Context) error {
 		var dialErr error
 		conn, dialErr = c.socksDialer.DialContext(attemptCtx, network, addr)
 		return dialErr
 	})
+	if c.metrics != nil {
+		c.metrics.recordRequest(time.Since(start), err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +161,13 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return nil, newError(ErrInvalidConfig, opClient, "request is nil", nil)
 	}
 
+	if c.rateLimiter != nil {
+		if err := c.rateLimiter.Wait(req.Context()); err != nil {
+			return nil, newError(ErrHTTPFailed, opClient, "rate limit wait failed", err)
+		}
+	}
+
+	start := time.Now()
 	var resp *http.Response
 	err := c.withRetry(req.Context(), 0, func(_ context.Context) error {
 		cloned, cloneErr := cloneRequestWithContext(req.Context(), req)
@@ -159,6 +186,9 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		}
 		return newError(ErrHTTPFailed, opClient, "http request failed", doErr)
 	})
+	if c.metrics != nil {
+		c.metrics.recordRequest(time.Since(start), err)
+	}
 	if err != nil {
 		return nil, err
 	}

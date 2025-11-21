@@ -258,6 +258,10 @@ type ClientConfig struct {
 	retryMaxDelay time.Duration
 	// retryOnError decides whether an error should trigger a retry.
 	retryOnError func(error) bool
+	// metrics is an optional collector for request statistics.
+	metrics *MetricsCollector
+	// rateLimiter is an optional rate limiter for requests.
+	rateLimiter *RateLimiter
 }
 
 // ClientOption customizes ClientConfig creation.
@@ -300,6 +304,12 @@ func (c ClientConfig) RetryMaxDelay() time.Duration { return c.retryMaxDelay }
 
 // RetryOnError decides whether an error should trigger a retry.
 func (c ClientConfig) RetryOnError() func(error) bool { return c.retryOnError }
+
+// Metrics returns the optional metrics collector.
+func (c ClientConfig) Metrics() *MetricsCollector { return c.metrics }
+
+// RateLimiter returns the optional rate limiter.
+func (c ClientConfig) RateLimiter() *RateLimiter { return c.rateLimiter }
 
 // WithClientSocksAddr sets the SocksPort address for the client.
 func WithClientSocksAddr(addr string) ClientOption {
@@ -368,6 +378,20 @@ func WithRetryMaxDelay(delay time.Duration) ClientOption {
 func WithRetryOnError(fn func(error) bool) ClientOption {
 	return func(cfg *ClientConfig) {
 		cfg.retryOnError = fn
+	}
+}
+
+// WithClientMetrics sets the metrics collector for the client.
+func WithClientMetrics(m *MetricsCollector) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.metrics = m
+	}
+}
+
+// WithClientRateLimiter sets the rate limiter for the client.
+func WithClientRateLimiter(r *RateLimiter) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.rateLimiter = r
 	}
 }
 
