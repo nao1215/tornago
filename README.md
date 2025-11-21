@@ -24,6 +24,18 @@ To prevent potential misuse, tornago is intentionally kept as a thin wrapper aro
 > [!IMPORTANT]
 > **Legal Notice**: This library is intended for legitimate purposes only, such as privacy protection, security research, and authorized fraud prevention activities. Users are solely responsible for ensuring their use of Tor and this library complies with all applicable laws and regulations. Do not use this tool for any illegal activities.
 
+
+## Features
+
+- Zero external Go dependencies. Built on standard library only.
+- `net.Listener`, `net.Addr`, `net.Dialer` compatible interfaces for easy integration.
+- Functional options pattern for configuration.
+- Structured errors with `errors.Is`/`errors.As` support.
+- Automatic retry with exponential backoff.
+- Optional metrics collection and rate limiting.
+- Only requires Tor binary as external dependency.
+
+
 ## Requirements
 
 ### Go

@@ -339,6 +339,13 @@ func WithClientControlCookie(path string) ClientOption {
 	}
 }
 
+// WithClientControlCookieBytes sets cookie-based ControlPort authentication using raw cookie bytes.
+func WithClientControlCookieBytes(data []byte) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.controlAuth.cookieBytes = append([]byte(nil), data...)
+	}
+}
+
 // WithClientDialTimeout sets the timeout for dialing via SOCKS5.
 func WithClientDialTimeout(timeout time.Duration) ClientOption {
 	return func(cfg *ClientConfig) {
