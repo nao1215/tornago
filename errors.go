@@ -29,6 +29,12 @@ const (
 	ErrIO ErrorKind = "io_error"
 	// ErrHiddenServiceFailed indicates Hidden Service creation/removal failed.
 	ErrHiddenServiceFailed ErrorKind = "hidden_service_failed"
+	// ErrListenerClosed indicates an operation was attempted on a closed listener.
+	ErrListenerClosed ErrorKind = "listener_closed"
+	// ErrListenerCloseFailed indicates the listener failed to close properly.
+	ErrListenerCloseFailed ErrorKind = "listener_close_failed"
+	// ErrAcceptFailed indicates Accept() failed on a listener.
+	ErrAcceptFailed ErrorKind = "accept_failed"
 	// ErrUnknown is used when no specific classification is available.
 	ErrUnknown ErrorKind = "unknown"
 )

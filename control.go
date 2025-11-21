@@ -577,10 +577,12 @@ func (c *ControlClient) readReply() ([]string, error) {
 		}
 		switch {
 		case strings.HasPrefix(line, "250 "):
-			if line == "250 OK" {
-				return lines, nil
+			// "250 " (space) indicates the final line of the reply.
+			// This includes "250 OK" and single-value replies like "250 SocksPort=9050".
+			if line != "250 OK" {
+				lines = append(lines, line[4:])
 			}
-			lines = append(lines, line[4:])
+			return lines, nil
 		case strings.HasPrefix(line, "250-"):
 			lines = append(lines, line[4:])
 		case strings.HasPrefix(line, "250+"):

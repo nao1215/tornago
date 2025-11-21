@@ -132,8 +132,14 @@ func (c *Client) Metrics() *MetricsCollector {
 }
 
 // Dial establishes a TCP connection via Tor's SOCKS5 proxy.
+// This is equivalent to DialContext with context.Background().
 func (c *Client) Dial(network, addr string) (net.Conn, error) {
-	ctx := context.Background()
+	return c.DialContext(context.Background(), network, addr)
+}
+
+// DialContext establishes a TCP connection via Tor's SOCKS5 proxy with context support.
+// The context can be used for cancellation and deadlines.
+func (c *Client) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if c.rateLimiter != nil {
 		if err := c.rateLimiter.Wait(ctx); err != nil {
 			return nil, newError(ErrSocksDialFailed, opClient, "rate limit wait failed", err)
@@ -153,6 +159,17 @@ func (c *Client) Dial(network, addr string) (net.Conn, error) {
 		return nil, err
 	}
 	return conn, nil
+}
+
+// Dialer returns a net.Dialer-compatible function that routes connections through Tor.
+// This can be used with libraries that accept a custom dial function.
+//
+// Example:
+//
+//	dialer := client.Dialer()
+//	conn, err := dialer(ctx, "tcp", "example.onion:80")
+func (c *Client) Dialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return c.DialContext
 }
 
 // Do performs an HTTP request via Tor with retry support.
@@ -418,6 +435,135 @@ func buildConnectRequest(host string, port uint16) ([]byte, error) {
 	binary.BigEndian.PutUint16(portBytes, port)
 	req = append(req, portBytes...)
 	return req, nil
+}
+
+// Listen creates a TorListener that exposes a local TCP listener as a Tor Hidden Service.
+// The virtualPort is the port exposed on the .onion address, and localPort is the local
+// port that accepts connections.
+//
+// This method requires a ControlClient to be configured (via WithClientControlAddr).
+//
+// Example:
+//
+//	client, _ := tornago.NewClient(cfg)
+//	listener, _ := client.Listen(ctx, 80, 8080) // onion:80 -> local:8080
+//	defer listener.Close()
+//
+//	fmt.Printf("Listening at: %s\n", listener.OnionAddress())
+//	for {
+//	    conn, _ := listener.Accept()
+//	    go handleConnection(conn)
+//	}
+func (c *Client) Listen(ctx context.Context, virtualPort, localPort int) (*TorListener, error) {
+	if c.control == nil {
+		return nil, newError(ErrInvalidConfig, opClient, "ControlClient is required for Listen", nil)
+	}
+
+	// Create local TCP listener.
+	localAddr := fmt.Sprintf("127.0.0.1:%d", localPort)
+	lc := &net.ListenConfig{}
+	underlying, err := lc.Listen(ctx, "tcp", localAddr)
+	if err != nil {
+		return nil, newError(ErrIO, opClient, "failed to create local listener", err)
+	}
+
+	// Get the actual port if localPort was 0 (auto-assign).
+	actualPort := localPort
+	if localPort == 0 {
+		tcpAddr, ok := underlying.Addr().(*net.TCPAddr)
+		if !ok {
+			_ = underlying.Close()
+			return nil, newError(ErrIO, opClient, "unexpected listener address type", nil)
+		}
+		actualPort = tcpAddr.Port
+	}
+
+	// Create hidden service configuration.
+	hsCfg, err := NewHiddenServiceConfig(
+		WithHiddenServicePort(virtualPort, actualPort),
+	)
+	if err != nil {
+		_ = underlying.Close()
+		return nil, err
+	}
+
+	// Create the hidden service.
+	hs, err := c.control.CreateHiddenService(ctx, hsCfg)
+	if err != nil {
+		_ = underlying.Close()
+		return nil, err
+	}
+
+	onionAddr := &OnionAddr{
+		address: fmt.Sprintf("%s:%d", hs.OnionAddress(), virtualPort),
+		port:    virtualPort,
+	}
+
+	return &TorListener{
+		underlying:    underlying,
+		hiddenService: hs,
+		onionAddr:     onionAddr,
+		virtualPort:   virtualPort,
+	}, nil
+}
+
+// ListenWithConfig creates a TorListener using a custom HiddenServiceConfig.
+// This allows for advanced configurations like persistent keys or client authorization.
+//
+// The HiddenServiceConfig must have exactly one port mapping, and its target port
+// must match the localPort parameter.
+//
+// Example:
+//
+//	hsCfg, _ := tornago.NewHiddenServiceConfig(
+//	    tornago.WithHiddenServicePrivateKey(savedKey),
+//	    tornago.WithHiddenServicePort(80, 8080),
+//	)
+//	listener, _ := client.ListenWithConfig(ctx, hsCfg, 8080)
+func (c *Client) ListenWithConfig(ctx context.Context, hsCfg HiddenServiceConfig, localPort int) (*TorListener, error) {
+	if c.control == nil {
+		return nil, newError(ErrInvalidConfig, opClient, "ControlClient is required for ListenWithConfig", nil)
+	}
+
+	// Validate port mapping: must have exactly one mapping and target port must match localPort.
+	ports := hsCfg.Ports()
+	if len(ports) != 1 {
+		return nil, newError(ErrInvalidConfig, opClient, "HiddenServiceConfig must have exactly one port mapping for ListenWithConfig", nil)
+	}
+	var virtualPort, targetPort int
+	for vp, tp := range ports {
+		virtualPort, targetPort = vp, tp
+	}
+	if targetPort != localPort {
+		return nil, newError(ErrInvalidConfig, opClient, "localPort must match hidden service target port", nil)
+	}
+
+	// Create local TCP listener.
+	localAddr := fmt.Sprintf("127.0.0.1:%d", localPort)
+	lc := &net.ListenConfig{}
+	underlying, err := lc.Listen(ctx, "tcp", localAddr)
+	if err != nil {
+		return nil, newError(ErrIO, opClient, "failed to create local listener", err)
+	}
+
+	// Create the hidden service.
+	hs, err := c.control.CreateHiddenService(ctx, hsCfg)
+	if err != nil {
+		_ = underlying.Close()
+		return nil, err
+	}
+
+	onionAddr := &OnionAddr{
+		address: fmt.Sprintf("%s:%d", hs.OnionAddress(), virtualPort),
+		port:    virtualPort,
+	}
+
+	return &TorListener{
+		underlying:    underlying,
+		hiddenService: hs,
+		onionAddr:     onionAddr,
+		virtualPort:   virtualPort,
+	}, nil
 }
 
 // consumeConnectReply reads and validates the SOCKS5 CONNECT reply.
