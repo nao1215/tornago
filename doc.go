@@ -64,6 +64,33 @@
 //
 // All configurations use functional options pattern for flexibility and immutability.
 //
+// # API Design Principles
+//
+// **Method Naming Conventions**
+//
+// tornago follows a consistent naming convention to distinguish between different
+// types of verification operations:
+//
+//   - Check*() methods perform internal health checks and status verification
+//
+//   - Check() - Verifies SOCKS and ControlPort connectivity
+//
+//   - CheckDNSLeak() - Detects if DNS queries are leaking outside Tor
+//
+//   - CheckTorDaemon() - Checks if the Tor process is running properly
+//
+//   - These methods are faster but rely on internal heuristics
+//
+//   - Verify*() methods use external validation via third-party services
+//
+//   - VerifyTorConnection() - Confirms Tor usage via check.torproject.org
+//
+//   - These methods are more authoritative but depend on external services
+//
+// This distinction helps you choose the appropriate method:
+//   - Use Check*() for quick health monitoring and internal validation
+//   - Use Verify*() when you need authoritative external confirmation
+//
 // # Authentication
 //
 // Tor's ControlPort requires authentication. tornago supports:
@@ -146,6 +173,150 @@
 //	fmt.Printf("Requests: %d, Success: %d, Avg latency: %v\n",
 //	    metrics.RequestCount(), metrics.SuccessCount(), metrics.AverageLatency())
 //
+// **With Observability (Logging and Health Checks)**
+//
+//	// Structured logging
+//	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+//	slogAdapter := tornago.NewSlogAdapter(logger)
+//
+//	clientCfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithClientLogger(slogAdapter),
+//	)
+//
+//	client, _ := tornago.NewClient(clientCfg)
+//
+//	// Health check
+//	health := client.Check(context.Background())
+//	if !health.IsHealthy() {
+//	    log.Printf("Client unhealthy: %s", health.Message())
+//	}
+//
+// **Hidden Service with Persistent Key**
+//
+//	const keyPath = "/var/lib/myapp/onion.pem"
+//
+//	// Try to load existing key
+//	privateKey, err := tornago.LoadPrivateKey(keyPath)
+//	if err != nil {
+//	    // First run: create new service
+//	    hsCfg, _ := tornago.NewHiddenServiceConfig(
+//	        tornago.WithHiddenServicePort(80, 8080),
+//	    )
+//	    hs, _ := controlClient.CreateHiddenService(ctx, hsCfg)
+//
+//	    // Save key for next time
+//	    tornago.SavePrivateKey(keyPath, hs.PrivateKey())
+//	    os.Chmod(keyPath, 0600)
+//	} else {
+//	    // Reuse existing key - same .onion address
+//	    hsCfg, _ := tornago.NewHiddenServiceConfig(
+//	        tornago.WithHiddenServicePrivateKey(privateKey),
+//	        tornago.WithHiddenServicePort(80, 8080),
+//	    )
+//	    hs, _ := controlClient.CreateHiddenService(ctx, hsCfg)
+//	}
+//
+// # Security Best Practices
+//
+// **Connection Verification**
+//
+// Always verify that your application is routing traffic through Tor:
+//
+//	status, err := client.VerifyTorConnection(ctx)
+//	if err != nil {
+//	    log.Fatalf("Verification failed: %v", err)
+//	}
+//	if !status.IsUsingTor() {
+//	    log.Fatalf("CRITICAL: Traffic is NOT going through Tor!")
+//	}
+//
+// When to verify:
+//   - On application startup
+//   - After configuration changes
+//   - Periodically in long-running services
+//   - Before handling sensitive operations
+//
+// **DNS Leak Prevention**
+//
+// Check if DNS queries are leaking outside Tor:
+//
+//	leakCheck, err := client.CheckDNSLeak(ctx)
+//	if err != nil {
+//	    log.Fatalf("DNS leak check failed: %v", err)
+//	}
+//	if leakCheck.HasLeak() {
+//	    log.Fatalf("WARNING: DNS leak detected! IPs: %v", leakCheck.ResolvedIPs())
+//	}
+//
+// DNS leaks reveal which domains you're accessing to your ISP or DNS provider.
+//
+// **Hidden Service Private Key Management**
+//
+// Private keys determine your .onion address. Keep them secure:
+//
+//	// File permissions
+//	sudo chmod 600 /var/lib/myapp/onion.pem
+//	sudo chown myapp:myapp /var/lib/myapp/onion.pem
+//
+//	// Encrypted backups
+//	openssl enc -aes-256-cbc -salt \
+//	    -in /var/lib/myapp/onion.pem \
+//	    -out onion.pem.enc
+//
+// Best practices:
+//   - Store keys in secure directory with restricted permissions (chmod 600)
+//   - Keep encrypted backups in separate physical location
+//   - Test restoration regularly
+//   - Use SELinux/AppArmor for additional protection
+//   - Monitor key file access with audit logs
+//
+// **Common Security Pitfalls**
+//
+// 1. Using HTTP instead of HTTPS:
+//   - Exit nodes can see unencrypted HTTP traffic
+//   - Always use HTTPS for end-to-end encryption
+//
+// 2. Leaking metadata:
+//   - Remove identifying headers (User-Agent, X-Forwarded-For)
+//   - Minimize timestamps and other identifying information
+//
+// 3. Circuit reuse correlation:
+//   - Rotate circuits for sensitive operations using NewIdentity()
+//   - Wait 5-10 seconds after rotation for new circuit to build
+//
+// 4. Insufficient timeouts:
+//   - Use minimum 30s dial timeout, 60-120s request timeout
+//   - .onion sites require even longer timeouts (60s+ dial, 120s+ request)
+//
+// 5. Not verifying .onion addresses:
+//   - Hardcode trusted .onion addresses
+//   - Verify addresses through trusted channels to avoid phishing
+//
+// **Client Authentication for Hidden Services**
+//
+// Restrict hidden service access to authorized clients:
+//
+//	// Server side
+//	auth := tornago.HiddenServiceAuth{
+//	    ClientName: "authorized-client-1",
+//	    PublicKey:  "descriptor:x25519:AAAA...base64-public-key",
+//	}
+//	hsCfg, _ := tornago.NewHiddenServiceConfig(
+//	    tornago.WithHiddenServiceClientAuth(auth),
+//	)
+//
+// Generate x25519 key pairs:
+//
+//	openssl genpkey -algorithm x25519 -out private.pem
+//	openssl pkey -in private.pem -pubout -out public.pem
+//	openssl pkey -in public.pem -pubin -outform DER | tail -c 32 | base64
+//
+// Security benefits:
+//   - Only authorized clients can discover the service
+//   - Protects against descriptor enumeration attacks
+//   - Provides end-to-end authentication
+//
 // # Troubleshooting
 //
 // **Tor binary not found**
@@ -208,10 +379,80 @@
 //	    }
 //	}
 //
-// # Additional Documentation
+// **Testing Tor connection manually**
 //
-// For detailed configuration examples and troubleshooting steps, see:
-//   - doc/CONFIGURATION.md - Recommended settings for different use cases
-//   - doc/TROUBLESHOOTING.md - Common issues and solutions
-//   - examples/ directory - Working code examples
+//	# Test SOCKS proxy
+//	curl --socks5 127.0.0.1:9050 https://check.torproject.org/api/ip
+//
+//	# Test .onion access
+//	curl --socks5 127.0.0.1:9050 http://your-address.onion
+//
+// # Rate Limiting Recommendations
+//
+// Tor network capacity is limited. Use appropriate rate limits:
+//
+//	// Conservative (respectful scraping)
+//	rateLimiter := tornago.NewRateLimiter(1.0, 3)  // 1 req/s, burst 3
+//
+//	// Moderate (general use)
+//	rateLimiter := tornago.NewRateLimiter(5.0, 10)  // 5 req/s, burst 10
+//
+//	// Aggressive (high volume)
+//	rateLimiter := tornago.NewRateLimiter(10.0, 20)  // 10 req/s, burst 20
+//
+// Excessive requests may degrade Tor network performance for everyone.
+//
+// # Environment-Specific Configurations
+//
+// **CI/CD Testing**
+//
+// Use fast timeouts and ephemeral instances:
+//
+//	launchCfg, _ := tornago.NewTorLaunchConfig(
+//	    tornago.WithTorSocksAddr(":0"),
+//	    tornago.WithTorControlAddr(":0"),
+//	    tornago.WithTorStartupTimeout(120*time.Second), // CI may be slow
+//	)
+//
+// **Docker Container**
+//
+// Mount persistent DataDirectory:
+//
+//	launchCfg, _ := tornago.NewTorLaunchConfig(
+//	    tornago.WithTorSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithTorControlAddr("127.0.0.1:9051"),
+//	    tornago.WithTorDataDirectory("/var/lib/tor"),
+//	)
+//
+// **High-Availability Service**
+//
+// Use system Tor with health monitoring:
+//
+//	// Verify Tor availability
+//	auth, _, err := tornago.ControlAuthFromTor("127.0.0.1:9051", 5*time.Second)
+//	if err != nil {
+//	    log.Fatal("Tor not available")
+//	}
+//
+//	client, _ := tornago.NewClient(clientCfg)
+//	health := client.Check(ctx)
+//	if !health.IsHealthy() {
+//	    log.Fatalf("Tor unhealthy: %s", health.Message())
+//	}
+//
+// # Additional Resources
+//
+// For working code examples, see the examples/ directory:
+//   - examples/simple_client - Basic HTTP requests through Tor
+//   - examples/onion_client - Accessing .onion sites
+//   - examples/onion_server - Creating Hidden Services
+//   - examples/existing_tor - Connecting to system Tor daemon
+//   - examples/circuit_rotation - Rotating circuits to change exit IP
+//   - examples/error_handling - Proper error handling patterns
+//   - examples/metrics_ratelimit - Metrics collection and rate limiting
+//   - examples/persistent_onion - Hidden Service with persistent key
+//   - examples/observability - Structured logging, metrics, and health checks
+//   - examples/security - Tor connection verification and DNS leak detection
+//
+// Complete API documentation: https://pkg.go.dev/github.com/nao1215/tornago
 package tornago

@@ -579,12 +579,6 @@ The `examples/` directory contains additional working examples:
 
 All examples are tested and ready to run.
 
-## Documentation
-
-- [Configuration Guide](doc/CONFIGURATION.md) - Recommended settings for different use cases
-- [Troubleshooting Guide](doc/TROUBLESHOOTING.md) - Common issues and solutions
-- [API Reference](https://pkg.go.dev/github.com/nao1215/tornago) - Complete API documentation
-
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.
 
