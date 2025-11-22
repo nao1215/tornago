@@ -26,8 +26,8 @@ func requireIntegration(t *testing.T) {
 func TestClientIntegration(t *testing.T) {
 	requireIntegration(t)
 
-	ts := StartTestServer(t)
-	defer ts.Close()
+	// Use shared global test server
+	ts := getGlobalTestServer(t)
 
 	// Create client with ControlAddr configured for hidden service management.
 	auth := ts.ControlAuth(t)

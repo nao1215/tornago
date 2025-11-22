@@ -56,6 +56,36 @@ type Client struct {
 	metrics *MetricsCollector
 	// rateLimiter controls request rate (optional).
 	rateLimiter *RateLimiter
+	// logger provides structured logging (optional).
+	logger Logger
+}
+
+// NewDefaultClient creates a Client with default settings for connecting to a
+// local Tor daemon running on localhost:9050 (the default Tor SOCKS port).
+//
+// This is a convenience function equivalent to:
+//
+//	cfg, _ := tornago.NewClientConfig()
+//	client, _ := tornago.NewClient(cfg)
+//
+// For custom configuration (timeouts, control port, metrics, etc.), use NewClient with
+// a custom ClientConfig instead.
+//
+// Example:
+//
+//	client, err := tornago.NewDefaultClient()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+//	resp, err := client.HTTP().Get("https://check.torproject.org")
+func NewDefaultClient() (*Client, error) {
+	cfg, err := NewClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	return NewClient(cfg)
 }
 
 // NewClient builds a Client that routes traffic through the configured Tor server.
@@ -90,14 +120,34 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		retryPolicy: retry,
 		metrics:     cfg.Metrics(),
 		rateLimiter: cfg.RateLimiter(),
+		logger:      cfg.Logger(),
 	}
 
+	// Log client creation
+	client.logger.Log("debug", "created Tor client",
+		"socks_addr", cfg.SocksAddr(),
+		"control_addr", cfg.ControlAddr(),
+		"dial_timeout", cfg.DialTimeout(),
+		"request_timeout", cfg.RequestTimeout(),
+	)
+
+	// Optimized Transport configuration for Tor
+	// - MaxIdleConns: 100 (default is 100, but explicitly set for clarity)
+	// - MaxIdleConnsPerHost: 10 (increased from default 2 for better connection reuse)
+	// - IdleConnTimeout: 90s (keep connections alive longer through Tor circuits)
+	// - DisableKeepAlives: false (enable connection reuse to avoid circuit churn)
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return client.dialContext(ctx, network, address)
 		},
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: cfg.DialTimeout(),
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   cfg.DialTimeout(),
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		DisableKeepAlives:     false,
+		DisableCompression:    false,
+		ResponseHeaderTimeout: cfg.RequestTimeout(),
 	}
 
 	client.httpClient = &http.Client{
@@ -140,8 +190,11 @@ func (c *Client) Dial(network, addr string) (net.Conn, error) {
 // DialContext establishes a TCP connection via Tor's SOCKS5 proxy with context support.
 // The context can be used for cancellation and deadlines.
 func (c *Client) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	c.logger.Log("debug", "dial attempt", "network", network, "addr", addr)
+
 	if c.rateLimiter != nil {
 		if err := c.rateLimiter.Wait(ctx); err != nil {
+			c.logger.Log("warn", "rate limit wait failed", "error", err)
 			return nil, newError(ErrSocksDialFailed, opClient, "rate limit wait failed", err)
 		}
 	}
@@ -150,14 +203,21 @@ func (c *Client) DialContext(ctx context.Context, network, addr string) (net.Con
 	err := c.withRetry(ctx, c.cfg.DialTimeout(), func(attemptCtx context.Context) error {
 		var dialErr error
 		conn, dialErr = c.socksDialer.DialContext(attemptCtx, network, addr)
+		if dialErr == nil && c.metrics != nil {
+			// Record dial operation for connection reuse metrics
+			c.metrics.recordDial()
+		}
 		return dialErr
 	})
+	latency := time.Since(start)
 	if c.metrics != nil {
-		c.metrics.recordRequest(time.Since(start), err)
+		c.metrics.recordRequest(latency, err)
 	}
 	if err != nil {
+		c.logger.Log("error", "dial failed", "network", network, "addr", addr, "latency", latency, "error", err)
 		return nil, err
 	}
+	c.logger.Log("debug", "dial succeeded", "network", network, "addr", addr, "latency", latency)
 	return conn, nil
 }
 
@@ -178,8 +238,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return nil, newError(ErrInvalidConfig, opClient, "request is nil", nil)
 	}
 
+	c.logger.Log("debug", "http request", "method", req.Method, "url", req.URL.String())
+
 	if c.rateLimiter != nil {
 		if err := c.rateLimiter.Wait(req.Context()); err != nil {
+			c.logger.Log("warn", "rate limit wait failed", "error", err)
 			return nil, newError(ErrHTTPFailed, opClient, "rate limit wait failed", err)
 		}
 	}
@@ -203,26 +266,34 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		}
 		return newError(ErrHTTPFailed, opClient, "http request failed", doErr)
 	})
+	latency := time.Since(start)
 	if c.metrics != nil {
-		c.metrics.recordRequest(time.Since(start), err)
+		c.metrics.recordRequest(latency, err)
 	}
 	if err != nil {
+		c.logger.Log("error", "http request failed", "method", req.Method, "url", req.URL.String(), "latency", latency, "error", err)
 		return nil, err
 	}
+	c.logger.Log("debug", "http request succeeded", "method", req.Method, "url", req.URL.String(), "status", resp.StatusCode, "latency", latency)
 	return resp, nil
 }
 
 // Close closes the ControlClient and underlying HTTP transport resources.
 func (c *Client) Close() error {
+	c.logger.Log("debug", "closing client")
 	var closeErr error
 	if c.control != nil {
 		closeErr = c.control.Close()
+		if closeErr != nil {
+			c.logger.Log("error", "failed to close control client", "error", closeErr)
+		}
 	}
 	if c.httpClient != nil {
 		if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
 			transport.CloseIdleConnections()
 		}
 	}
+	c.logger.Log("debug", "client closed")
 	return closeErr
 }
 
@@ -235,6 +306,12 @@ func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Con
 		if dialErr != nil {
 			return dialErr
 		}
+
+		// Record dial operation for connection reuse metrics
+		if c.metrics != nil {
+			c.metrics.recordDial()
+		}
+
 		return nil
 	})
 	if err != nil {

@@ -68,6 +68,42 @@ func TestNewClient(t *testing.T) {
 	})
 }
 
+func TestNewDefaultClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should create client with default settings", func(t *testing.T) {
+		t.Parallel()
+
+		client, err := NewDefaultClient()
+		if err != nil {
+			t.Fatalf("NewDefaultClient() failed: %v", err)
+		}
+		if client == nil {
+			t.Fatal("NewDefaultClient() returned nil client")
+		}
+		defer func() {
+			if err := client.Close(); err != nil {
+				t.Errorf("Close() failed: %v", err)
+			}
+		}()
+
+		// Verify HTTP client is available
+		httpClient := client.HTTP()
+		if httpClient == nil {
+			t.Fatal("HTTP() returned nil")
+		}
+
+		// Verify Control client is nil (no control port by default)
+		controlClient := client.Control()
+		if controlClient != nil {
+			t.Error("Control() should return nil when not configured")
+		}
+
+		// Verify Metrics() method works (can be nil by default)
+		_ = client.Metrics()
+	})
+}
+
 func TestParsePort(t *testing.T) {
 	t.Run("should parse valid port number", func(t *testing.T) {
 		port, err := parsePort("80")
@@ -474,7 +510,7 @@ func TestClientDo(t *testing.T) {
 		}
 		defer client.Close()
 
-		// Create a request with a cancelled context
+		// Create a request with a canceled context
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
@@ -485,7 +521,7 @@ func TestClientDo(t *testing.T) {
 
 		resp, err := client.Do(req)
 		if err == nil {
-			t.Error("expected Do to fail with cancelled context")
+			t.Error("expected Do to fail with canceled context")
 		}
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -969,5 +1005,56 @@ func TestConsumeConnectReplyIPv6(t *testing.T) {
 		if err != nil {
 			t.Errorf("consumeConnectReply failed with IPv6: %v", err)
 		}
+	})
+}
+
+func TestClientWithLogger(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should use custom logger", func(t *testing.T) {
+		t.Parallel()
+
+		customLogger := noopLogger{}
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+			WithClientLogger(customLogger),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+		defer client.Close()
+
+		if client.logger == nil {
+			t.Error("Client logger should not be nil")
+		}
+	})
+
+	t.Run("should use noop logger by default", func(t *testing.T) {
+		t.Parallel()
+
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+		defer client.Close()
+
+		if client.logger == nil {
+			t.Error("Client logger should not be nil, expected default noopLogger")
+		}
+
+		// Verify it's a noopLogger by checking it doesn't panic
+		client.logger.Log("debug", "test")
 	})
 }

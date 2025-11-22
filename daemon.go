@@ -118,20 +118,27 @@ func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 		return nil, err
 	}
 
+	logger := cfg.Logger()
+	logger.Log("info", "starting Tor daemon", "socks_addr", cfg.SocksAddr(), "control_addr", cfg.ControlAddr())
+
 	dataDir := cfg.DataDir()
 	cleanupDataDir := false
 	if dataDir == "" {
 		dataDir, err = os.MkdirTemp("", "tornago-tor-data-*")
 		if err != nil {
+			logger.Log("error", "failed to create data directory", "error", err)
 			return nil, newError(ErrIO, opStartTorDaemon, "failed to create data directory", err)
 		}
 		cleanupDataDir = true
+		logger.Log("debug", "created temporary data directory", "path", dataDir)
 	} else {
 		dataDir = filepath.Clean(dataDir)
 		if err := os.MkdirAll(dataDir, 0o700); err != nil {
 			msg := "failed to create data directory " + dataDir
+			logger.Log("error", msg, "error", err)
 			return nil, newError(ErrIO, opStartTorDaemon, msg, err)
 		}
+		logger.Log("debug", "using persistent data directory", "path", dataDir)
 	}
 
 	cleanupOnFail := cleanupDataDir
@@ -210,18 +217,24 @@ func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 	}
 
 	if startErr := cmd.Start(); startErr != nil {
+		logger.Log("error", "failed to start tor process", "error", startErr)
 		err = newError(ErrTorLaunchFailed, opStartTorDaemon, attachLogs("failed to start tor"), startErr)
 		return nil, err
 	}
+
+	logger.Log("debug", "tor process started", "pid", cmd.Process.Pid)
 
 	// Create a context for waiting for ports to become ready
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.StartupTimeout())
 	defer cancel()
 
+	logger.Log("debug", "waiting for tor ports to become ready", "timeout", cfg.StartupTimeout())
+
 	if waitErr := waitForPorts(ctx, socksAddr, controlAddr); waitErr != nil {
 		if stopErr := terminateCmd(cmd); stopErr != nil {
 			waitErr = errors.Join(waitErr, stopErr)
 		}
+		logger.Log("error", "tor ports did not become ready", "error", waitErr)
 		err = newError(ErrTorLaunchFailed, opStartTorDaemon, attachLogs("tor process exited before ports became reachable"), waitErr)
 		return nil, err
 	}
@@ -236,6 +249,7 @@ func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 		cmd:            cmd,
 	}
 	cleanupOnFail = false
+	logger.Log("info", "Tor daemon started successfully", "pid", proc.pid, "socks_addr", proc.socksAddr, "control_addr", proc.controlAddr)
 	return proc, nil
 }
 

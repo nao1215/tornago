@@ -3,6 +3,7 @@ package tornago
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -80,6 +81,29 @@ func TestNewTorLaunchConfig(t *testing.T) {
 		if len(args) != 2 || args[0] != "--DisableNetwork" || args[1] != "1" {
 			t.Errorf("ExtraArgs mismatch: got %v", args)
 		}
+	})
+
+	t.Run("should accept custom logger", func(t *testing.T) {
+		customLogger := noopLogger{}
+		cfg, err := NewTorLaunchConfig(WithTorLogger(customLogger))
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig returned error: %v", err)
+		}
+		if cfg.Logger() == nil {
+			t.Error("Logger should not be nil")
+		}
+	})
+
+	t.Run("should use noop logger by default", func(t *testing.T) {
+		cfg, err := NewTorLaunchConfig()
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig returned error: %v", err)
+		}
+		if cfg.Logger() == nil {
+			t.Error("Logger should not be nil, expected default noopLogger")
+		}
+		// Verify it's a noopLogger by checking it doesn't panic
+		cfg.Logger().Log("debug", "test")
 	})
 }
 
@@ -614,6 +638,100 @@ func TestNewTorLaunchConfigValidation(t *testing.T) {
 
 		if cfg.ControlAddr() != "127.0.0.1:9051" {
 			t.Errorf("expected ControlAddr 127.0.0.1:9051, got %s", cfg.ControlAddr())
+		}
+	})
+}
+
+func TestValidationErrorMessages(t *testing.T) {
+	t.Parallel()
+
+	t.Run("client config empty SOCKS address should have helpful message", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := ClientConfig{socksAddr: ""}
+		err := validateClientConfig(cfg)
+		if err == nil {
+			t.Fatal("expected error for empty SOCKS address")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "WithClientSocksAddr") {
+			t.Errorf("error message should suggest WithClientSocksAddr, got: %s", errMsg)
+		}
+	})
+
+	t.Run("client config negative dial timeout should show actual value", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := ClientConfig{
+			socksAddr:   "127.0.0.1:9050",
+			dialTimeout: -5 * time.Second,
+		}
+		err := validateClientConfig(cfg)
+		if err == nil {
+			t.Fatal("expected error for negative dial timeout")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "WithClientDialTimeout") {
+			t.Errorf("error message should suggest WithClientDialTimeout, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, "-5s") {
+			t.Errorf("error message should show actual value -5s, got: %s", errMsg)
+		}
+	})
+
+	t.Run("tor launch config empty binary should have helpful message", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := TorLaunchConfig{torBinary: ""}
+		err := validateTorLaunchConfig(cfg)
+		if err == nil {
+			t.Fatal("expected error for empty tor binary")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "WithTorBinary") {
+			t.Errorf("error message should suggest WithTorBinary, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, "PATH") {
+			t.Errorf("error message should mention PATH, got: %s", errMsg)
+		}
+	})
+
+	t.Run("tor launch config empty SOCKS address should mention dynamic port", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := TorLaunchConfig{
+			torBinary: "tor",
+			socksAddr: "",
+		}
+		err := validateTorLaunchConfig(cfg)
+		if err == nil {
+			t.Fatal("expected error for empty SOCKS address")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, ":0") {
+			t.Errorf("error message should mention :0 for dynamic port, got: %s", errMsg)
+		}
+	})
+
+	t.Run("server config empty SOCKS address should have specific suggestion", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := ServerConfig{socksAddr: ""}
+		err := validateServerConfig(cfg)
+		if err == nil {
+			t.Fatal("expected error for empty SOCKS address")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "WithServerSocksAddr") {
+			t.Errorf("error message should suggest WithServerSocksAddr, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, "127.0.0.1:9050") {
+			t.Errorf("error message should show example address 127.0.0.1:9050, got: %s", errMsg)
 		}
 	})
 }

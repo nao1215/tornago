@@ -35,6 +35,80 @@ To prevent potential misuse, tornago is intentionally kept as a thin wrapper aro
 - Optional metrics collection and rate limiting.
 - Only requires Tor binary as external dependency.
 
+## How Tor Works
+
+Tor (The Onion Router) provides anonymity by routing traffic through multiple encrypted layers. Understanding this mechanism helps you use tornago effectively.
+
+### Onion Routing: Multi-Layer Encryption
+
+```mermaid
+sequenceDiagram
+    participant Client as Your Application<br/>(tornago)
+    participant Guard as Entry Node<br/>(Guard)
+    participant Middle as Middle Node
+    participant Exit as Exit Node
+    participant Target as Target Server<br/>(example.com)
+
+    Note over Client: 1. Build Circuit
+    Client->>Guard: Encrypted with Guard's key<br/>[Middle info + Exit info + Request]
+    Note over Guard: Decrypt 1st layer<br/>See: Middle node address
+    Guard->>Middle: Encrypted with Middle's key<br/>[Exit info + Request]
+    Note over Middle: Decrypt 2nd layer<br/>See: Exit node address
+    Middle->>Exit: Encrypted with Exit's key<br/>[Request]
+    Note over Exit: Decrypt 3rd layer<br/>See: Target address
+
+    Note over Client,Target: 2. Send Request
+    Client->>Guard: Encrypted data (3 layers)
+    Guard->>Middle: Encrypted data (2 layers)
+    Middle->>Exit: Encrypted data (1 layer)
+    Exit->>Target: Plain HTTP/HTTPS request
+
+    Note over Client,Target: 3. Receive Response
+    Target->>Exit: Plain HTTP/HTTPS response
+    Exit->>Middle: Encrypted response (1 layer)
+    Middle->>Guard: Encrypted response (2 layers)
+    Guard->>Client: Encrypted response (3 layers)
+    Note over Client: Decrypt all layers<br/>See final response
+```
+
+### Key Security Properties
+
+**Layered Encryption (Onion Layers)**
+- Each relay only knows its immediate predecessor and successor
+- Entry node (Guard) knows your IP but not your destination
+- Exit node knows your destination but not your IP
+- Middle node knows neither your IP nor destination
+
+**Privacy Guarantees**
+- Your ISP sees: You connect to a Tor entry node (but not what you're accessing)
+- Entry node sees: Your IP address (but not your destination)
+- Middle node sees: Only relay traffic (no source or destination)
+- Exit node sees: Your destination (but not your real IP)
+- Target server sees: Exit node's IP (not your real IP)
+
+**Limitations to Understand**
+- Exit node can see unencrypted traffic (use HTTPS for end-to-end encryption)
+- Exit node operators could monitor traffic (but can't trace back to you)
+- Timing analysis might correlate traffic patterns (Tor provides anonymity, not perfect unlinkability)
+- Slower than direct connection (3-hop routing adds latency)
+
+### Tornago's Role
+
+Tornago simplifies Tor integration by handling:
+
+1. **SOCKS5 Proxy Communication**: Automatically routes your HTTP/TCP traffic through Tor's SOCKS5 proxy
+2. **Circuit Management**: Uses ControlPort to rotate circuits (get new exit nodes)
+3. **Hidden Service Creation**: Manages .onion addresses via ADD_ONION/DEL_ONION commands
+
+```mermaid
+graph LR
+    A[Your Go App] -->|tornago| B[Tor Daemon]
+    B -->|SOCKS5 Proxy| C[Tor Network]
+    C --> D[Target Server]
+
+    A -->|ControlPort| B
+    B -.->|Circuit Control| C
+```
 
 ## Requirements
 
@@ -489,6 +563,21 @@ You can now access your hidden service through Tor Browser or any Tor client usi
 
 <img src="./doc/images/tornago-server-example.png" alt="onion site" width="500"/>
 
+## More Examples
+
+The `examples/` directory contains additional working examples:
+
+- [`simple_client`](examples/simple_client/main.go) - Basic HTTP requests through Tor
+- [`onion_client`](examples/onion_client/main.go) - Accessing .onion sites
+- [`onion_server`](examples/onion_server/main.go) - Creating a Hidden Service
+- [`existing_tor`](examples/existing_tor/main.go) - Connecting to system Tor daemon
+- [`circuit_rotation`](examples/circuit_rotation/main.go) - Rotating circuits to change exit IP
+- [`error_handling`](examples/error_handling/main.go) - Proper error handling patterns
+- [`metrics_ratelimit`](examples/metrics_ratelimit/main.go) - Metrics collection and rate limiting
+- [`persistent_onion`](examples/persistent_onion/main.go) - Hidden Service with persistent key
+- [`observability`](examples/observability/main.go) - Structured logging, metrics, and health checks
+
+All examples are tested and ready to run.
 
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.

@@ -212,19 +212,11 @@ func (ts *TestServer) Close() {
 	ts.client = nil
 	ts.clientMu.Unlock()
 	if client != nil {
-		if err := client.Close(); err != nil {
-			if ts.t != nil {
-				ts.t.Logf("tornago: failed to close client: %v", err)
-			}
-		}
+		_ = client.Close()
+		// Silently ignore errors during cleanup
 	}
 	if ts.Process != nil {
-		if err := ts.Process.Stop(); err != nil {
-			if ts.t != nil {
-				// Log instead of Fatal since this is called from defer
-				ts.t.Logf("tornago: failed to stop tor process: %v", err)
-			}
-		}
+		_ = ts.Process.Stop() //nolint:errcheck // Silently ignore errors during cleanup
 		ts.Process = nil
 	}
 }
