@@ -501,6 +501,7 @@ The `examples/` directory contains additional working examples:
 - [`error_handling`](examples/error_handling/main.go) - Proper error handling patterns
 - [`metrics_ratelimit`](examples/metrics_ratelimit/main.go) - Metrics collection and rate limiting
 - [`persistent_onion`](examples/persistent_onion/main.go) - Hidden Service with persistent key
+- [`observability`](examples/observability/main.go) - Structured logging, metrics, and health checks
 
 All examples are tested and ready to run.
 

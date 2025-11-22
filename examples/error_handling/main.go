@@ -32,7 +32,7 @@ func main() {
 			fmt.Printf("Operation: %s\n", torErr.Op)
 			fmt.Printf("Message: %s\n", torErr.Msg)
 		}
-		fmt.Println("Expected failure - continuing with valid timeout...\n")
+		fmt.Println("Expected failure - continuing with valid timeout...")
 	}
 
 	// Example 2: Successful startup with proper timeout
@@ -51,7 +51,7 @@ func main() {
 		log.Fatalf("Failed to start Tor: %v", err)
 	}
 	defer torProcess.Stop()
-	fmt.Println("Tor started successfully\n")
+	fmt.Println("Tor started successfully")
 
 	// Example 3: Handle connection errors
 	fmt.Println("Example 3: Connection to invalid address")
@@ -80,7 +80,7 @@ func main() {
 		log.Fatalf("Failed to create request: %v", err)
 	}
 
-	_, err = client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		var torErr *tornago.TornagoError
 		if errors.As(err, &torErr) {
@@ -92,7 +92,9 @@ func main() {
 		} else {
 			fmt.Printf("Other error: %v\n", err)
 		}
-		fmt.Println("Expected failure - domain does not exist\n")
+		fmt.Println("Expected failure - domain does not exist")
+	} else if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 
 	// Example 4: Successful request
@@ -107,7 +109,7 @@ func main() {
 		log.Fatalf("Failed to create request: %v", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err = client.Do(req)
 	if err != nil {
 		log.Fatalf("Request failed: %v", err)
 	}

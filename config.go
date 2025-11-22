@@ -40,6 +40,8 @@ type TorLaunchConfig struct {
 	extraArgs []string
 	// startupTimeout bounds how long Tornago waits for tor to become ready.
 	startupTimeout time.Duration
+	// logger provides structured logging for Tor daemon operations.
+	logger Logger
 }
 
 // TorLaunchOption customizes TorLaunchConfig creation.
@@ -86,6 +88,9 @@ func (c TorLaunchConfig) StartupTimeout() time.Duration { return c.startupTimeou
 
 // TorConfigFile is the optional tor configuration file path passed with "-f".
 func (c TorLaunchConfig) TorConfigFile() string { return c.torConfigFile }
+
+// Logger returns the structured logger for Tor daemon operations.
+func (c TorLaunchConfig) Logger() Logger { return c.logger }
 
 // WithTorBinary sets the tor executable path.
 func WithTorBinary(path string) TorLaunchOption {
@@ -144,6 +149,13 @@ func WithTorExtraArgs(args ...string) TorLaunchOption {
 func WithTorStartupTimeout(timeout time.Duration) TorLaunchOption {
 	return func(cfg *TorLaunchConfig) {
 		cfg.startupTimeout = timeout
+	}
+}
+
+// WithTorLogger sets the structured logger for Tor daemon operations.
+func WithTorLogger(logger Logger) TorLaunchOption {
+	return func(cfg *TorLaunchConfig) {
+		cfg.logger = logger
 	}
 }
 
@@ -262,6 +274,8 @@ type ClientConfig struct {
 	metrics *MetricsCollector
 	// rateLimiter is an optional rate limiter for requests.
 	rateLimiter *RateLimiter
+	// logger is an optional structured logger for debugging and monitoring.
+	logger Logger
 }
 
 // ClientOption customizes ClientConfig creation.
@@ -307,6 +321,9 @@ func (c ClientConfig) RetryOnError() func(error) bool { return c.retryOnError }
 
 // Metrics returns the optional metrics collector.
 func (c ClientConfig) Metrics() *MetricsCollector { return c.metrics }
+
+// Logger returns the optional logger instance.
+func (c ClientConfig) Logger() Logger { return c.logger }
 
 // RateLimiter returns the optional rate limiter.
 func (c ClientConfig) RateLimiter() *RateLimiter { return c.rateLimiter }
@@ -395,6 +412,23 @@ func WithClientMetrics(m *MetricsCollector) ClientOption {
 	}
 }
 
+// WithClientLogger sets a structured logger for debugging and monitoring.
+//
+// Example with slog:
+//
+//	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+//	    Level: slog.LevelDebug,
+//	}))
+//	cfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithClientLogger(tornago.NewSlogAdapter(logger)),
+//	)
+func WithClientLogger(logger Logger) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.logger = logger
+	}
+}
+
 // WithClientRateLimiter sets the rate limiter for the client.
 func WithClientRateLimiter(r *RateLimiter) ClientOption {
 	return func(cfg *ClientConfig) {
@@ -424,6 +458,9 @@ func applyTorLaunchDefaults(cfg TorLaunchConfig) TorLaunchConfig {
 	}
 	if cfg.startupTimeout == 0 {
 		cfg.startupTimeout = defaultStartupTimeout
+	}
+	if cfg.logger == nil {
+		cfg.logger = noopLogger{}
 	}
 	return cfg
 }
@@ -505,6 +542,9 @@ func applyClientDefaults(cfg ClientConfig) ClientConfig {
 	}
 	if cfg.retryOnError == nil {
 		cfg.retryOnError = defaultRetryOnError
+	}
+	if cfg.logger == nil {
+		cfg.logger = noopLogger{}
 	}
 	return cfg
 }

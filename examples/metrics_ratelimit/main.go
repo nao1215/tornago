@@ -89,7 +89,9 @@ func main() {
 			log.Printf("Request %d failed: %v", i+1, err)
 			continue
 		}
-		resp.Body.Close()
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 
 		elapsed := time.Since(reqStart)
 		fmt.Printf("Request %2d: %s (took %v)\n", i+1, resp.Status, elapsed.Round(time.Millisecond))

@@ -81,6 +81,29 @@ func TestNewTorLaunchConfig(t *testing.T) {
 			t.Errorf("ExtraArgs mismatch: got %v", args)
 		}
 	})
+
+	t.Run("should accept custom logger", func(t *testing.T) {
+		customLogger := noopLogger{}
+		cfg, err := NewTorLaunchConfig(WithTorLogger(customLogger))
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig returned error: %v", err)
+		}
+		if cfg.Logger() == nil {
+			t.Error("Logger should not be nil")
+		}
+	})
+
+	t.Run("should use noop logger by default", func(t *testing.T) {
+		cfg, err := NewTorLaunchConfig()
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig returned error: %v", err)
+		}
+		if cfg.Logger() == nil {
+			t.Error("Logger should not be nil, expected default noopLogger")
+		}
+		// Verify it's a noopLogger by checking it doesn't panic
+		cfg.Logger().Log("debug", "test")
+	})
 }
 
 func TestNewServerConfig(t *testing.T) {

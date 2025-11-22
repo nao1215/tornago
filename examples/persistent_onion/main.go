@@ -87,7 +87,7 @@ func main() {
 	// Start local HTTP server
 	localAddr := "127.0.0.1:8080"
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "Hello from persistent Hidden Service!\nTime: %s\n", time.Now().Format(time.RFC3339))
 	})
 

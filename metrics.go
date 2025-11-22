@@ -30,12 +30,20 @@ type MetricsCollector struct {
 	successCount uint64
 	errorCount   uint64
 	totalLatency int64 // nanoseconds
+	minLatency   int64 // nanoseconds
+	maxLatency   int64 // nanoseconds
 	mu           sync.RWMutex
+
+	// Error tracking by kind
+	errorsByKind map[ErrorKind]uint64
+	errorsMu     sync.RWMutex
 }
 
 // NewMetricsCollector creates a new MetricsCollector.
 func NewMetricsCollector() *MetricsCollector {
-	return &MetricsCollector{}
+	return &MetricsCollector{
+		errorsByKind: make(map[ErrorKind]uint64),
+	}
 }
 
 // RequestCount returns the total number of requests made.
@@ -69,6 +77,30 @@ func (m *MetricsCollector) AverageLatency() time.Duration {
 	return time.Duration(total) / time.Duration(count) //nolint:gosec // count is guaranteed > 0 and overflow is acceptable for metrics
 }
 
+// MinLatency returns the minimum request latency observed.
+// Returns 0 if no requests have been made.
+func (m *MetricsCollector) MinLatency() time.Duration {
+	return time.Duration(atomic.LoadInt64(&m.minLatency))
+}
+
+// MaxLatency returns the maximum request latency observed.
+// Returns 0 if no requests have been made.
+func (m *MetricsCollector) MaxLatency() time.Duration {
+	return time.Duration(atomic.LoadInt64(&m.maxLatency))
+}
+
+// ErrorsByKind returns a copy of error counts grouped by error kind.
+func (m *MetricsCollector) ErrorsByKind() map[ErrorKind]uint64 {
+	m.errorsMu.RLock()
+	defer m.errorsMu.RUnlock()
+
+	result := make(map[ErrorKind]uint64, len(m.errorsByKind))
+	for k, v := range m.errorsByKind {
+		result[k] = v
+	}
+	return result
+}
+
 // Reset clears all metrics to zero.
 func (m *MetricsCollector) Reset() {
 	m.mu.Lock()
@@ -77,15 +109,78 @@ func (m *MetricsCollector) Reset() {
 	atomic.StoreUint64(&m.successCount, 0)
 	atomic.StoreUint64(&m.errorCount, 0)
 	atomic.StoreInt64(&m.totalLatency, 0)
+	atomic.StoreInt64(&m.minLatency, 0)
+	atomic.StoreInt64(&m.maxLatency, 0)
+
+	m.errorsMu.Lock()
+	m.errorsByKind = make(map[ErrorKind]uint64)
+	m.errorsMu.Unlock()
 }
 
 // recordRequest increments the request count and records latency.
 func (m *MetricsCollector) recordRequest(latency time.Duration, err error) {
 	atomic.AddUint64(&m.requestCount, 1)
-	atomic.AddInt64(&m.totalLatency, int64(latency))
+	latencyNs := int64(latency)
+	atomic.AddInt64(&m.totalLatency, latencyNs)
+
+	// Update min/max latency
+	for {
+		oldMin := atomic.LoadInt64(&m.minLatency)
+		if oldMin != 0 && latencyNs >= oldMin {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&m.minLatency, oldMin, latencyNs) {
+			break
+		}
+	}
+
+	for {
+		oldMax := atomic.LoadInt64(&m.maxLatency)
+		if latencyNs <= oldMax {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&m.maxLatency, oldMax, latencyNs) {
+			break
+		}
+	}
+
 	if err == nil {
 		atomic.AddUint64(&m.successCount, 1)
 	} else {
 		atomic.AddUint64(&m.errorCount, 1)
+
+		// Track error by kind
+		var torErr *TornagoError
+		if As(err, &torErr) {
+			m.errorsMu.Lock()
+			m.errorsByKind[torErr.Kind]++
+			m.errorsMu.Unlock()
+		}
 	}
+}
+
+// As is a helper function that wraps errors.As for internal use.
+func As(err error, target any) bool {
+	if err == nil {
+		return false
+	}
+	targetPtr, ok := target.(**TornagoError)
+	if !ok {
+		return false
+	}
+	for err != nil {
+		if torErr, ok := err.(*TornagoError); ok { //nolint:errorlint // intentional type assertion
+			*targetPtr = torErr
+			return true
+		}
+		type unwrapper interface {
+			Unwrap() error
+		}
+		if u, ok := err.(unwrapper); ok {
+			err = u.Unwrap()
+		} else {
+			return false
+		}
+	}
+	return false
 }
