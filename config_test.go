@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestNewTorLaunchConfig(t *testing.T) {
 	})
 
 	t.Run("should accept custom torrc file path", func(t *testing.T) {
-		torrcPath := "/tmp/custom-torrc"
+		torrcPath := filepath.Join(os.TempDir(), "custom-torrc")
 		cfg, err := NewTorLaunchConfig(WithTorConfigFile(torrcPath))
 		if err != nil {
 			t.Fatalf("NewTorLaunchConfig returned error: %v", err)
@@ -624,7 +625,7 @@ func TestNewTorLaunchConfigValidation(t *testing.T) {
 		cfg, err := NewTorLaunchConfig(
 			WithTorSocksAddr("127.0.0.1:9050"),
 			WithTorControlAddr("127.0.0.1:9051"),
-			WithTorDataDir("/tmp/tor-data"),
+			WithTorDataDir(filepath.Join(os.TempDir(), "tor-data")),
 			WithTorBinary("/usr/bin/tor"),
 			WithTorStartupTimeout(2*time.Minute),
 		)

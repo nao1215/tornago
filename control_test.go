@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -184,7 +185,7 @@ func TestWaitForControlPort(t *testing.T) {
 		addr := listener.Addr().String()
 
 		// Create a temporary cookie file
-		tmpFile := fmt.Sprintf("/tmp/tornago-test-cookie-%d", time.Now().UnixNano())
+		tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("tornago-test-cookie-%d", time.Now().UnixNano()))
 		err = createTempCookieFile(tmpFile)
 		if err != nil {
 			t.Fatalf("failed to create temp cookie: %v", err)
@@ -251,7 +252,7 @@ func TestWaitForControlPort(t *testing.T) {
 		addr := listener.Addr().String()
 
 		// Create a temporary cookie file path (but don't create the file yet)
-		tmpFile := fmt.Sprintf("/tmp/tornago-test-cookie-%d", time.Now().UnixNano())
+		tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("tornago-test-cookie-%d", time.Now().UnixNano()))
 		defer removeTempFile(tmpFile)
 
 		// Handle connections in background
@@ -356,7 +357,7 @@ func TestAuthToken(t *testing.T) {
 
 	t.Run("should generate token from cookie file", func(t *testing.T) {
 		// Create temporary cookie file
-		tmpFile := "/tmp/tornago-test-auth-cookie"
+		tmpFile := filepath.Join(os.TempDir(), "tornago-test-auth-cookie")
 		cookieData := []byte("test-file-cookie-content")
 		err := os.WriteFile(tmpFile, cookieData, 0600)
 		if err != nil {
@@ -457,7 +458,7 @@ func TestControlClientAdditional(t *testing.T) {
 func TestControlAuthFromTor(t *testing.T) {
 	t.Run("should retrieve auth from running Tor", func(t *testing.T) {
 		// Create a temporary cookie file
-		tmpFile := "/tmp/tornago-test-control-cookie"
+		tmpFile := filepath.Join(os.TempDir(), "tornago-test-control-cookie")
 		cookieData := []byte("test-cookie-data-12345678901234567890123456789012")
 		err := os.WriteFile(tmpFile, cookieData, 0600)
 		if err != nil {

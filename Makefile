@@ -29,11 +29,11 @@ clean: ## Clean project
 
 test: ## Run fast unit tests (excludes integration tests)
 	env GOOS=$(GOOS) $(GO_TEST) -cover -coverpkg=$(GO_PKGROOT) -coverprofile=coverage.out -short $(GO_PKGROOT)
-	$(GO_TOOL) cover -html=coverage.out -o coverage.html
+	-$(GO_TOOL) cover -html=coverage.out -o coverage.html
 
 integration-test: ## Run all tests including slow integration tests with full coverage
-	$(INTEGRATION_ENV) TORNAGO_INTEGRATION=1 env GOOS=$(GOOS) $(GO_TEST) -cover -coverpkg=$(GO_PKGROOT) -coverprofile=coverage-integration.out -count=1 $(GO_PKGROOT)
-	$(GO_TOOL) cover -html=coverage-integration.out -o coverage-integration.html
+	$(INTEGRATION_ENV) TORNAGO_INTEGRATION=1 env GOOS=$(GOOS) $(GO_TEST) -cover -coverprofile=coverage-integration.out -count=1 $(shell $(GO) list ./... | grep -v /examples)
+	-$(GO_TOOL) cover -html=coverage-integration.out -o coverage-integration.html
 
 .DEFAULT_GOAL := help
 help: ## Show help message

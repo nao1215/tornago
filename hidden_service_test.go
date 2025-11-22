@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -378,8 +379,11 @@ func TestSaveAndLoadPrivateKey(t *testing.T) {
 		if err != nil {
 			t.Fatalf("key file not created: %v", err)
 		}
-		if info.Mode().Perm() != 0600 {
-			t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
+		// Skip permission check on Windows as it doesn't support Unix-style permissions
+		if runtime.GOOS != "windows" {
+			if info.Mode().Perm() != 0600 {
+				t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
+			}
 		}
 
 		// Load the key back
@@ -394,7 +398,7 @@ func TestSaveAndLoadPrivateKey(t *testing.T) {
 
 	t.Run("should return error for empty private key", func(t *testing.T) {
 		hs := &hiddenService{privateKey: ""}
-		err := hs.SavePrivateKey("/tmp/test.key")
+		err := hs.SavePrivateKey(filepath.Join(os.TempDir(), "test.key"))
 		if err == nil {
 			t.Error("expected error for empty private key")
 		}

@@ -20,6 +20,16 @@ func TestStartTorDaemonUsesExplicitConfig(t *testing.T) {
 		t.Fatalf("tornago: failed to create tor data directory: %v", err)
 	}
 
+	// Resolve dynamic ports before writing to torrc (Tor doesn't support :0 in config files)
+	socksAddr, err := resolveAddr("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("tornago: failed to resolve socks address: %v", err)
+	}
+	controlAddr, err := resolveAddr("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("tornago: failed to resolve control address: %v", err)
+	}
+
 	torrcPath := filepath.Join(tempDir, "torrc")
 	torrc := fmt.Sprintf(`
 SocksPort %s
@@ -28,7 +38,7 @@ DataDirectory %s
 CookieAuthentication 1
 ClientUseIPv6 0
 Log notice stdout
-`, testTorSocksAddr, testTorControlAddr, dataDir)
+`, socksAddr, controlAddr, dataDir)
 	if err := os.WriteFile(torrcPath, []byte(strings.TrimSpace(torrc)+"\n"), 0o600); err != nil {
 		t.Fatalf("tornago: failed to write torrc: %v", err)
 	}
@@ -45,8 +55,8 @@ Log notice stdout
 
 	launchCfg, err := NewTorLaunchConfig(
 		WithTorDataDir(dataDir),
-		WithTorSocksAddr(testTorSocksAddr),
-		WithTorControlAddr(testTorControlAddr),
+		WithTorSocksAddr(socksAddr),
+		WithTorControlAddr(controlAddr),
 		WithTorConfigFile(torrcPath),
 		WithTorLogReporter(logReporter),
 	)
@@ -73,9 +83,9 @@ Log notice stdout
 	logged := strings.Join(logs, "\n")
 	mu.Unlock()
 
-	expected := fmt.Sprintf("Read configuration file %q", torrcPath)
-	if !strings.Contains(logged, expected) {
-		t.Fatalf("tor logs missing config path; want %q got %q", expected, logged)
+	// Check if torrc path appears in logs (without quoting to avoid Windows path escaping issues)
+	if !strings.Contains(logged, torrcPath) {
+		t.Fatalf("tor logs missing config path %s; got %q", torrcPath, logged)
 	}
 	if strings.Contains(logged, "/etc/tor/torrc") {
 		t.Fatalf("tor logs referenced system torrc; got %q", logged)

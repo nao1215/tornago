@@ -2,6 +2,8 @@ package tornago
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -29,9 +31,10 @@ func TestTorProcessAccessors(t *testing.T) {
 	})
 
 	t.Run("should return correct DataDir", func(t *testing.T) {
-		p := &TorProcess{dataDir: "/tmp/tor"}
-		if p.DataDir() != "/tmp/tor" {
-			t.Errorf("expected DataDir /tmp/tor, got %s", p.DataDir())
+		expectedDir := filepath.Join(os.TempDir(), "tor")
+		p := &TorProcess{dataDir: expectedDir}
+		if p.DataDir() != expectedDir {
+			t.Errorf("expected DataDir %s, got %s", expectedDir, p.DataDir())
 		}
 	})
 }
