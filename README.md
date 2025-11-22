@@ -489,6 +489,26 @@ You can now access your hidden service through Tor Browser or any Tor client usi
 
 <img src="./doc/images/tornago-server-example.png" alt="onion site" width="500"/>
 
+## More Examples
+
+The `examples/` directory contains additional working examples:
+
+- [`simple_client`](examples/simple_client/main.go) - Basic HTTP requests through Tor
+- [`onion_client`](examples/onion_client/main.go) - Accessing .onion sites
+- [`onion_server`](examples/onion_server/main.go) - Creating a Hidden Service
+- [`existing_tor`](examples/existing_tor/main.go) - Connecting to system Tor daemon
+- [`circuit_rotation`](examples/circuit_rotation/main.go) - Rotating circuits to change exit IP
+- [`error_handling`](examples/error_handling/main.go) - Proper error handling patterns
+- [`metrics_ratelimit`](examples/metrics_ratelimit/main.go) - Metrics collection and rate limiting
+- [`persistent_onion`](examples/persistent_onion/main.go) - Hidden Service with persistent key
+
+All examples are tested and ready to run.
+
+## Documentation
+
+- [Configuration Guide](doc/CONFIGURATION.md) - Recommended settings for different use cases
+- [Troubleshooting Guide](doc/TROUBLESHOOTING.md) - Common issues and solutions
+- [API Reference](https://pkg.go.dev/github.com/nao1215/tornago) - Complete API documentation
 
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.

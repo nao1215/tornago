@@ -88,4 +88,130 @@
 //   - ErrSocksDialFailed: Cannot connect to Tor SocksPort (is Tor running?)
 //   - ErrControlRequestFail: ControlPort command failed (check authentication)
 //   - ErrTimeout: Operation exceeded deadline (increase timeout or check network)
+//
+// # Configuration
+//
+// **Timeout Recommendations**
+//
+// Tor adds significant latency due to multi-hop routing:
+//   - Dial timeout: 20-30 seconds for production, 30-60 seconds for .onion sites
+//   - Request timeout: 60-120 seconds for typical requests, 120-300 seconds for large downloads
+//   - Startup timeout: 60-120 seconds for first launch, 30-60 seconds with cached state
+//
+// **Development Environment**
+//
+// Launch ephemeral Tor daemon for testing:
+//
+//	launchCfg, _ := tornago.NewTorLaunchConfig(
+//	    tornago.WithTorSocksAddr(":0"),  // Random port
+//	    tornago.WithTorControlAddr(":0"),
+//	    tornago.WithTorStartupTimeout(60*time.Second),
+//	)
+//	torProcess, _ := tornago.StartTorDaemon(launchCfg)
+//	defer torProcess.Stop()
+//
+//	clientCfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+//	    tornago.WithClientRequestTimeout(30*time.Second),
+//	)
+//
+// **Production Environment**
+//
+// Connect to system Tor daemon:
+//
+//	clientCfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithClientDialTimeout(30*time.Second),
+//	    tornago.WithClientRequestTimeout(120*time.Second),
+//	)
+//
+// System Tor configuration (/etc/tor/torrc):
+//
+//	SocksPort 127.0.0.1:9050
+//	ControlPort 127.0.0.1:9051
+//	CookieAuthentication 1
+//
+// **With Metrics and Rate Limiting**
+//
+//	metrics := tornago.NewMetricsCollector()
+//	rateLimiter := tornago.NewRateLimiter(5.0, 10)  // 5 req/s, burst 10
+//
+//	clientCfg, _ := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithClientMetrics(metrics),
+//	    tornago.WithClientRateLimiter(rateLimiter),
+//	)
+//
+//	// Check metrics
+//	fmt.Printf("Requests: %d, Success: %d, Avg latency: %v\n",
+//	    metrics.RequestCount(), metrics.SuccessCount(), metrics.AverageLatency())
+//
+// # Troubleshooting
+//
+// **Tor binary not found**
+//
+//	Error: tor_binary_not_found: tor executable not found in PATH
+//	Solution: Install Tor via package manager
+//	  Ubuntu/Debian: sudo apt install tor
+//	  macOS: brew install tor
+//	  Verify: tor --version
+//
+// **Cannot connect to Tor daemon**
+//
+//	Error: control_request_failed: failed to dial ControlPort
+//	Solution: Verify Tor is running
+//	  ps aux | grep tor
+//	  sudo netstat -tlnp | grep tor
+//	  Check /etc/tor/torrc for correct SocksPort/ControlPort
+//
+// **ControlPort authentication failed**
+//
+//	Error: control_auth_failed: AUTHENTICATE failed
+//	Solution: Check authentication method and credentials
+//	  For system Tor with cookie auth:
+//	    auth, _, _ := tornago.ControlAuthFromTor("127.0.0.1:9051", 30*time.Second)
+//	  Verify cookie file permissions:
+//	    ls -l /run/tor/control.authcookie
+//	  Add user to tor group if needed:
+//	    sudo usermod -a -G debian-tor $USER
+//
+// **Requests timeout**
+//
+//	Error: timeout: context deadline exceeded
+//	Solution: Increase timeouts for slow Tor connections
+//	  .onion sites take 5-30 seconds to connect typically
+//	  Use longer timeouts:
+//	    tornago.WithClientDialTimeout(60*time.Second)
+//	    tornago.WithClientRequestTimeout(120*time.Second)
+//
+// **Hidden Service not accessible**
+//
+//	Symptoms: .onion address times out, local server works
+//	Solution: Wait for service to establish (30-60 seconds after creation)
+//	  Access through Tor Browser or tornago client
+//	  Verify local service is listening before creating hidden service
+//
+// **Checking error types**
+//
+//	resp, err := client.Do(req)
+//	if err != nil {
+//	    var torErr *tornago.TornagoError
+//	    if errors.As(err, &torErr) {
+//	        switch torErr.Kind {
+//	        case tornago.ErrTimeout:
+//	            // Increase timeout
+//	        case tornago.ErrSocksDialFailed:
+//	            // Check Tor connection
+//	        case tornago.ErrHTTPFailed:
+//	            // Handle HTTP error
+//	        }
+//	    }
+//	}
+//
+// # Additional Documentation
+//
+// For detailed configuration examples and troubleshooting steps, see:
+//   - doc/CONFIGURATION.md - Recommended settings for different use cases
+//   - doc/TROUBLESHOOTING.md - Common issues and solutions
+//   - examples/ directory - Working code examples
 package tornago
