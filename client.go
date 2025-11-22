@@ -60,6 +60,34 @@ type Client struct {
 	logger Logger
 }
 
+// NewDefaultClient creates a Client with default settings for connecting to a
+// local Tor daemon running on localhost:9050 (the default Tor SOCKS port).
+//
+// This is a convenience function equivalent to:
+//
+//	cfg, _ := tornago.NewClientConfig()
+//	client, _ := tornago.NewClient(cfg)
+//
+// For custom configuration (timeouts, control port, metrics, etc.), use NewClient with
+// a custom ClientConfig instead.
+//
+// Example:
+//
+//	client, err := tornago.NewDefaultClient()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+//	resp, err := client.HTTP().Get("https://check.torproject.org")
+func NewDefaultClient() (*Client, error) {
+	cfg, err := NewClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	return NewClient(cfg)
+}
+
 // NewClient builds a Client that routes traffic through the configured Tor server.
 // The client is ready to use immediately after creation - all connections will
 // automatically be routed through Tor's SOCKS5 proxy.

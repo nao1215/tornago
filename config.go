@@ -3,6 +3,7 @@ package tornago
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 )
@@ -469,13 +470,17 @@ func applyTorLaunchDefaults(cfg TorLaunchConfig) TorLaunchConfig {
 func validateTorLaunchConfig(cfg TorLaunchConfig) error {
 	switch {
 	case cfg.torBinary == "":
-		return newError(ErrInvalidConfig, "validateTorLaunchConfig", "TorBinary is empty", nil)
+		return newError(ErrInvalidConfig, "validateTorLaunchConfig",
+			"TorBinary is empty. Use WithTorBinary(\"tor\") or ensure tor is in PATH", nil)
 	case cfg.socksAddr == "":
-		return newError(ErrInvalidConfig, "validateTorLaunchConfig", "SocksAddr is empty", nil)
+		return newError(ErrInvalidConfig, "validateTorLaunchConfig",
+			"SocksAddr is empty. Use WithTorSocksAddr(\":9050\") or WithTorSocksAddr(\":0\") for dynamic port", nil)
 	case cfg.controlAddr == "":
-		return newError(ErrInvalidConfig, "validateTorLaunchConfig", "ControlAddr is empty", nil)
+		return newError(ErrInvalidConfig, "validateTorLaunchConfig",
+			"ControlAddr is empty. Use WithTorControlAddr(\":9051\") or WithTorControlAddr(\":0\") for dynamic port", nil)
 	case cfg.startupTimeout <= 0:
-		return newError(ErrInvalidConfig, "validateTorLaunchConfig", "StartupTimeout must be positive", nil)
+		return newError(ErrInvalidConfig, "validateTorLaunchConfig",
+			fmt.Sprintf("StartupTimeout must be positive, got %v. Use WithTorStartupTimeout(30*time.Second)", cfg.startupTimeout), nil)
 	}
 	return nil
 }
@@ -504,9 +509,11 @@ func applyServerDefaults(cfg ServerConfig) ServerConfig {
 func validateServerConfig(cfg ServerConfig) error {
 	switch {
 	case cfg.socksAddr == "":
-		return newError(ErrInvalidConfig, "validateServerConfig", "SocksAddr is empty", nil)
+		return newError(ErrInvalidConfig, "validateServerConfig",
+			"SocksAddr is empty. Use WithServerSocksAddr(\"127.0.0.1:9050\") to specify Tor SOCKS address", nil)
 	case cfg.controlAddr == "":
-		return newError(ErrInvalidConfig, "validateServerConfig", "ControlAddr is empty", nil)
+		return newError(ErrInvalidConfig, "validateServerConfig",
+			"ControlAddr is empty. Use WithServerControlAddr(\"127.0.0.1:9051\") to specify Tor control port", nil)
 	}
 	return nil
 }
@@ -553,17 +560,23 @@ func applyClientDefaults(cfg ClientConfig) ClientConfig {
 func validateClientConfig(cfg ClientConfig) error {
 	switch {
 	case cfg.socksAddr == "":
-		return newError(ErrInvalidConfig, "validateClientConfig", "SocksAddr is empty", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			"SocksAddr is empty. Use WithClientSocksAddr(\"127.0.0.1:9050\") or ensure Tor is running on default port", nil)
 	case cfg.dialTimeout <= 0:
-		return newError(ErrInvalidConfig, "validateClientConfig", "DialTimeout must be positive", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			fmt.Sprintf("DialTimeout must be positive, got %v. Use WithClientDialTimeout(30*time.Second)", cfg.dialTimeout), nil)
 	case cfg.requestTimeout <= 0:
-		return newError(ErrInvalidConfig, "validateClientConfig", "RequestTimeout must be positive", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			fmt.Sprintf("RequestTimeout must be positive, got %v. Use WithClientRequestTimeout(60*time.Second)", cfg.requestTimeout), nil)
 	case cfg.retryDelay <= 0:
-		return newError(ErrInvalidConfig, "validateClientConfig", "RetryDelay must be positive", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			fmt.Sprintf("RetryDelay must be positive, got %v. Use WithClientRetryDelay(200*time.Millisecond)", cfg.retryDelay), nil)
 	case cfg.retryMaxDelay < cfg.retryDelay:
-		return newError(ErrInvalidConfig, "validateClientConfig", "RetryMaxDelay must be greater than or equal to RetryDelay", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			fmt.Sprintf("RetryMaxDelay (%v) must be >= RetryDelay (%v). Adjust with WithRetryMaxDelay()", cfg.retryMaxDelay, cfg.retryDelay), nil)
 	case cfg.retryOnError == nil:
-		return newError(ErrInvalidConfig, "validateClientConfig", "RetryOnError must not be nil", nil)
+		return newError(ErrInvalidConfig, "validateClientConfig",
+			"RetryOnError must not be nil. Use WithRetryOnError() or accept defaults", nil)
 	}
 	return nil
 }

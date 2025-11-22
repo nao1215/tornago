@@ -68,6 +68,42 @@ func TestNewClient(t *testing.T) {
 	})
 }
 
+func TestNewDefaultClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should create client with default settings", func(t *testing.T) {
+		t.Parallel()
+
+		client, err := NewDefaultClient()
+		if err != nil {
+			t.Fatalf("NewDefaultClient() failed: %v", err)
+		}
+		if client == nil {
+			t.Fatal("NewDefaultClient() returned nil client")
+		}
+		defer func() {
+			if err := client.Close(); err != nil {
+				t.Errorf("Close() failed: %v", err)
+			}
+		}()
+
+		// Verify HTTP client is available
+		httpClient := client.HTTP()
+		if httpClient == nil {
+			t.Fatal("HTTP() returned nil")
+		}
+
+		// Verify Control client is nil (no control port by default)
+		controlClient := client.Control()
+		if controlClient != nil {
+			t.Error("Control() should return nil when not configured")
+		}
+
+		// Verify Metrics() method works (can be nil by default)
+		_ = client.Metrics()
+	})
+}
+
 func TestParsePort(t *testing.T) {
 	t.Run("should parse valid port number", func(t *testing.T) {
 		port, err := parsePort("80")
