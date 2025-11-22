@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,7 +43,7 @@ func TestTorConnectionStatusString(t *testing.T) {
 
 			got := tt.status.String()
 			for _, want := range tt.wantContains {
-				if !contains(got, want) {
+				if !strings.Contains(got, want) {
 					t.Errorf("String() = %v, want to contain %v", got, want)
 				}
 			}
@@ -86,7 +87,7 @@ func TestDNSLeakCheckString(t *testing.T) {
 
 			got := tt.check.String()
 			for _, want := range tt.wantContains {
-				if !contains(got, want) {
+				if !strings.Contains(got, want) {
 					t.Errorf("String() = %v, want to contain %v", got, want)
 				}
 			}
@@ -94,107 +95,79 @@ func TestDNSLeakCheckString(t *testing.T) {
 	}
 }
 
-func TestVerifyTorConnection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ts := StartTestServer(t)
-	defer ts.Close()
-
+// TestSecurityFeatures runs all security-related integration tests with a single Tor instance.
+func TestSecurityFeatures(t *testing.T) {
+	// Use shared global test server
+	ts := getGlobalTestServer(t)
 	client := ts.Client(t)
 	defer client.Close()
 
-	t.Run("should verify Tor connection successfully", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+	t.Run("VerifyTorConnection", func(t *testing.T) {
+		t.Run("should verify Tor connection successfully", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
 
-		status, err := client.VerifyTorConnection(ctx)
-		if err != nil {
-			t.Fatalf("VerifyTorConnection() error = %v", err)
-		}
+			status, err := client.VerifyTorConnection(ctx)
+			if err != nil {
+				t.Fatalf("VerifyTorConnection() error = %v", err)
+			}
 
-		if !status.IsUsingTor() {
-			t.Errorf("VerifyTorConnection() IsUsingTor = false, want true (ExitIP: %s, Message: %s)",
-				status.ExitIP(), status.Message())
-		}
+			if !status.IsUsingTor() {
+				t.Errorf("VerifyTorConnection() IsUsingTor = false, want true (ExitIP: %s, Message: %s)",
+					status.ExitIP(), status.Message())
+			}
 
-		if status.ExitIP() == "" || status.ExitIP() == unknownIP {
-			t.Errorf("VerifyTorConnection() ExitIP = %s, want valid IP", status.ExitIP())
-		}
+			if status.ExitIP() == "" || status.ExitIP() == unknownIP {
+				t.Errorf("VerifyTorConnection() ExitIP = %s, want valid IP", status.ExitIP())
+			}
 
-		if status.Latency() <= 0 {
-			t.Error("VerifyTorConnection() Latency should be positive")
-		}
+			if status.Latency() <= 0 {
+				t.Error("VerifyTorConnection() Latency should be positive")
+			}
 
-		t.Logf("Tor connection verified: %s", status)
+			t.Logf("Tor connection verified: %s", status)
+		})
+
+		t.Run("should handle context cancellation", func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel() // Cancel immediately
+
+			_, err := client.VerifyTorConnection(ctx)
+			if err == nil {
+				t.Error("VerifyTorConnection() should return error when context is canceled")
+			}
+		})
 	})
 
-	t.Run("should handle context cancellation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
+	t.Run("CheckDNSLeak", func(t *testing.T) {
+		t.Run("should check DNS leak", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
 
-		_, err := client.VerifyTorConnection(ctx)
-		if err == nil {
-			t.Error("VerifyTorConnection() should return error when context is cancelled")
-		}
+			leakCheck, err := client.CheckDNSLeak(ctx)
+			if err != nil {
+				t.Fatalf("CheckDNSLeak() error = %v", err)
+			}
+
+			if len(leakCheck.ResolvedIPs()) == 0 {
+				t.Error("CheckDNSLeak() ResolvedIPs is empty")
+			}
+
+			if leakCheck.Latency() <= 0 {
+				t.Error("CheckDNSLeak() Latency should be positive")
+			}
+
+			t.Logf("DNS leak check: %s", leakCheck)
+		})
+
+		t.Run("should handle context cancellation", func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel() // Cancel immediately
+
+			_, err := client.CheckDNSLeak(ctx)
+			if err == nil {
+				t.Error("CheckDNSLeak() should return error when context is canceled")
+			}
+		})
 	})
-}
-
-func TestCheckDNSLeak(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ts := StartTestServer(t)
-	defer ts.Close()
-
-	client := ts.Client(t)
-	defer client.Close()
-
-	t.Run("should check DNS leak", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		leakCheck, err := client.CheckDNSLeak(ctx)
-		if err != nil {
-			t.Fatalf("CheckDNSLeak() error = %v", err)
-		}
-
-		if len(leakCheck.ResolvedIPs()) == 0 {
-			t.Error("CheckDNSLeak() ResolvedIPs is empty")
-		}
-
-		if leakCheck.Latency() <= 0 {
-			t.Error("CheckDNSLeak() Latency should be positive")
-		}
-
-		t.Logf("DNS leak check: %s", leakCheck)
-	})
-
-	t.Run("should handle context cancellation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
-
-		_, err := client.CheckDNSLeak(ctx)
-		if err == nil {
-			t.Error("CheckDNSLeak() should return error when context is cancelled")
-		}
-	})
-}
-
-// contains is a helper function to check if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
-}
-
-// findSubstring checks if substr exists in s.
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -1,11 +1,56 @@
 package tornago
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
+
+// globalTestServer is shared across all integration tests to avoid starting Tor multiple times.
+var (
+	globalTestServer     *TestServer
+	globalTestServerOnce sync.Once
+)
+
+// TestMain runs all tests and ensures cleanup of shared resources.
+func TestMain(m *testing.M) {
+	// Parse flags first so we can check testing.Short()
+	flag.Parse()
+
+	// Run all tests
+	code := m.Run()
+
+	// Clean up: stop the shared Tor instance if it was started
+	if globalTestServer != nil {
+		globalTestServer.Close()
+	}
+
+	os.Exit(code)
+}
+
+// getGlobalTestServer returns the shared test server for integration tests.
+// It lazily initializes the server on first call using sync.Once.
+func getGlobalTestServer(t *testing.T) *TestServer {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Lazy initialization: start Tor only on first call
+	globalTestServerOnce.Do(func() {
+		globalTestServer = StartTestServer(t)
+	})
+
+	if globalTestServer == nil {
+		t.Skip("global test server not available")
+	}
+
+	return globalTestServer
+}
 
 func TestParseBootstrapProgress(t *testing.T) {
 	t.Parallel()

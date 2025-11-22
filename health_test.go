@@ -204,61 +204,6 @@ func TestHealthCheckString(t *testing.T) {
 	}
 }
 
-func TestClientCheck(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ts := StartTestServer(t)
-	defer ts.Close()
-
-	client := ts.Client(t)
-	defer client.Close()
-
-	tests := []struct {
-		name       string
-		client     *Client
-		wantStatus HealthStatus
-	}{
-		{
-			name:       "should return healthy status for working client",
-			client:     client,
-			wantStatus: HealthStatusHealthy,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			health := tt.client.Check(ctx)
-
-			if health.Status() != tt.wantStatus {
-				t.Errorf("Check() status = %v, want %v (message: %s)",
-					health.Status(), tt.wantStatus, health.Message())
-			}
-
-			if health.Timestamp().IsZero() {
-				t.Error("Check() timestamp is zero")
-			}
-
-			if health.Latency() <= 0 {
-				t.Error("Check() latency is not positive")
-			}
-
-			// Test query methods
-			if tt.wantStatus == HealthStatusHealthy && !health.IsHealthy() {
-				t.Error("IsHealthy() = false, want true")
-			}
-			if tt.wantStatus == HealthStatusDegraded && !health.IsDegraded() {
-				t.Error("IsDegraded() = false, want true")
-			}
-			if tt.wantStatus == HealthStatusUnhealthy && !health.IsUnhealthy() {
-				t.Error("IsUnhealthy() = false, want true")
-			}
-		})
-	}
-}
-
 func TestClientCheckWithInvalidSOCKS(t *testing.T) {
 	t.Parallel()
 
@@ -291,51 +236,6 @@ func TestClientCheckWithInvalidSOCKS(t *testing.T) {
 	}
 }
 
-func TestCheckTorDaemon(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ts := StartTestServer(t)
-	defer ts.Close()
-
-	tests := []struct {
-		name       string
-		proc       *TorProcess
-		wantStatus HealthStatus
-	}{
-		{
-			name:       "should return healthy status for running daemon",
-			proc:       ts.Process,
-			wantStatus: HealthStatusHealthy,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			health := CheckTorDaemon(ctx, tt.proc)
-
-			if health.Status() != tt.wantStatus {
-				t.Errorf("CheckTorDaemon() status = %v, want %v (message: %s)",
-					health.Status(), tt.wantStatus, health.Message())
-			}
-
-			if health.Timestamp().IsZero() {
-				t.Error("CheckTorDaemon() timestamp is zero")
-			}
-
-			if health.Latency() <= 0 {
-				t.Error("CheckTorDaemon() latency is not positive")
-			}
-
-			if tt.wantStatus == HealthStatusHealthy && !health.IsHealthy() {
-				t.Error("IsHealthy() = false, want true")
-			}
-		})
-	}
-}
-
 func TestCheckTorDaemonWithNilProcess(t *testing.T) {
 	t.Parallel()
 
@@ -358,4 +258,95 @@ func TestCheckTorDaemonWithNilProcess(t *testing.T) {
 	if health.Message() != "Tor process not running" {
 		t.Errorf("CheckTorDaemon() message = %v, want 'Tor process not running'", health.Message())
 	}
+}
+
+// TestHealthFeatures runs all health-related integration tests with a single Tor instance.
+func TestHealthFeatures(t *testing.T) {
+	// Use shared global test server
+	ts := getGlobalTestServer(t)
+	client := ts.Client(t)
+	defer client.Close()
+
+	t.Run("ClientCheck", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			client     *Client
+			wantStatus HealthStatus
+		}{
+			{
+				name:       "should return healthy status for working client",
+				client:     client,
+				wantStatus: HealthStatusHealthy,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ctx := context.Background()
+				health := tt.client.Check(ctx)
+
+				if health.Status() != tt.wantStatus {
+					t.Errorf("Check() status = %v, want %v (message: %s)",
+						health.Status(), tt.wantStatus, health.Message())
+				}
+
+				if health.Timestamp().IsZero() {
+					t.Error("Check() timestamp is zero")
+				}
+
+				if health.Latency() <= 0 {
+					t.Error("Check() latency is not positive")
+				}
+
+				// Test query methods
+				if tt.wantStatus == HealthStatusHealthy && !health.IsHealthy() {
+					t.Error("IsHealthy() = false, want true")
+				}
+				if tt.wantStatus == HealthStatusDegraded && !health.IsDegraded() {
+					t.Error("IsDegraded() = false, want true")
+				}
+				if tt.wantStatus == HealthStatusUnhealthy && !health.IsUnhealthy() {
+					t.Error("IsUnhealthy() = false, want true")
+				}
+			})
+		}
+	})
+
+	t.Run("CheckTorDaemon", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			proc       *TorProcess
+			wantStatus HealthStatus
+		}{
+			{
+				name:       "should return healthy status for running daemon",
+				proc:       ts.Process,
+				wantStatus: HealthStatusHealthy,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ctx := context.Background()
+				health := CheckTorDaemon(ctx, tt.proc)
+
+				if health.Status() != tt.wantStatus {
+					t.Errorf("CheckTorDaemon() status = %v, want %v (message: %s)",
+						health.Status(), tt.wantStatus, health.Message())
+				}
+
+				if health.Timestamp().IsZero() {
+					t.Error("CheckTorDaemon() timestamp is zero")
+				}
+
+				if health.Latency() <= 0 {
+					t.Error("CheckTorDaemon() latency is not positive")
+				}
+
+				if tt.wantStatus == HealthStatusHealthy && !health.IsHealthy() {
+					t.Error("IsHealthy() = false, want true")
+				}
+			})
+		}
+	})
 }

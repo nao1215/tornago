@@ -510,7 +510,7 @@ func TestClientDo(t *testing.T) {
 		}
 		defer client.Close()
 
-		// Create a request with a cancelled context
+		// Create a request with a canceled context
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
@@ -521,7 +521,7 @@ func TestClientDo(t *testing.T) {
 
 		resp, err := client.Do(req)
 		if err == nil {
-			t.Error("expected Do to fail with cancelled context")
+			t.Error("expected Do to fail with canceled context")
 		}
 		if resp != nil {
 			_ = resp.Body.Close()

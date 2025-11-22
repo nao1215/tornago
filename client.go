@@ -131,12 +131,23 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		"request_timeout", cfg.RequestTimeout(),
 	)
 
+	// Optimized Transport configuration for Tor
+	// - MaxIdleConns: 100 (default is 100, but explicitly set for clarity)
+	// - MaxIdleConnsPerHost: 10 (increased from default 2 for better connection reuse)
+	// - IdleConnTimeout: 90s (keep connections alive longer through Tor circuits)
+	// - DisableKeepAlives: false (enable connection reuse to avoid circuit churn)
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return client.dialContext(ctx, network, address)
 		},
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: cfg.DialTimeout(),
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   cfg.DialTimeout(),
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		DisableKeepAlives:     false,
+		DisableCompression:    false,
+		ResponseHeaderTimeout: cfg.RequestTimeout(),
 	}
 
 	client.httpClient = &http.Client{
@@ -192,6 +203,10 @@ func (c *Client) DialContext(ctx context.Context, network, addr string) (net.Con
 	err := c.withRetry(ctx, c.cfg.DialTimeout(), func(attemptCtx context.Context) error {
 		var dialErr error
 		conn, dialErr = c.socksDialer.DialContext(attemptCtx, network, addr)
+		if dialErr == nil && c.metrics != nil {
+			// Record dial operation for connection reuse metrics
+			c.metrics.recordDial()
+		}
 		return dialErr
 	})
 	latency := time.Since(start)
@@ -291,6 +306,12 @@ func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Con
 		if dialErr != nil {
 			return dialErr
 		}
+
+		// Record dial operation for connection reuse metrics
+		if c.metrics != nil {
+			c.metrics.recordDial()
+		}
+
 		return nil
 	})
 	if err != nil {
