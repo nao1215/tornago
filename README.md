@@ -13,7 +13,7 @@ Tornago is a lightweight wrapper around the [Tor](https://www.torproject.org/) c
 - **Tor Client**: Route HTTP/TCP traffic through Tor's SOCKS5 proxy with automatic retries
 - **Tor Server**: Create and manage Hidden Services (onion services) via Tor's ControlPort
 
-The library is designed for both development (launching ephemeral Tor instances) and production (connecting to existing Tor deployments).
+The library is designed for both development (launching ephemeral Tor instances) and production (connecting to existing Tor deployments). Tested successfully across linux, macOS, Windows and major BSD variants.
 
 ## Why tornago?
 
@@ -116,12 +116,15 @@ graph LR
 
 - **Go Version**: 1.25 or later
 
-### Operating Systems
+### Operating Systems (Tested in GitHub Actions)
 
 - Linux
 - macOS
-
-Tornago library may work in a BSD environment, but it has not been tested. It definitely does not work in a Windows environment.
+- Windows
+- FreeBSD
+- OpenBSD
+- NetBSD
+- DragonFly BSD
 
 ### Tor
 

@@ -16,6 +16,7 @@ jobs:
         os:
           - "ubuntu-latest"
           - "macos-latest"
+          - "windows-latest"
         go:
           - "1.25"
       fail-fast: false
@@ -39,6 +40,13 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install tor
+
+      - name: Install Tor (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install tor -y
+          # Add Tor to PATH
+          echo "C:\ProgramData\chocolatey\lib\tor\tools\Tor" >> $env:GITHUB_PATH
 
       - name: Run integration tests with coverage
         run: make integration-test
