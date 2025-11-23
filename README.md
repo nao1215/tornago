@@ -2,6 +2,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/nao1215/tornago)](https://goreportcard.com/report/github.com/nao1215/tornago)
 ![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/tornago/coverage.svg)
 
+[日本語](./doc/ja/README.md) | [Español](./doc/es/README.md) | [Français](./doc/fr/README.md) | [한국어](./doc/ko/README.md) | [Русский](./doc/ru/README.md) | [中文](./doc/zh-cn/README.md)
+
 # tornago
 
 <img src="./doc/images/tornago-logo-small.png" alt="tornago-logo" width="500"/>
@@ -37,7 +39,7 @@ To prevent potential misuse, tornago is intentionally kept as a thin wrapper aro
 
 ## How Tor Works
 
-Tor (The Onion Router) provides anonymity by routing traffic through multiple encrypted layers. Understanding this mechanism helps you use tornago effectively.
+Tor (The Onion Router) provides anonymity by routing traffic through multiple encrypted layers. Understanding this mechanism helps you use tornago eを作る必要がありますffectively.
 
 ### Onion Routing: Multi-Layer Encryption
 
@@ -130,7 +132,7 @@ graph LR
 
 Tornago requires the Tor daemon to be installed on your system. The library has been tested with Tor version 0.4.8.x and should work with newer versions.
 
-**Installation:**
+**Installation:**を作る必要があります
 
 ```bash
 # Ubuntu/Debian

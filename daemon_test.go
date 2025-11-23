@@ -2,10 +2,14 @@ package tornago
 
 import (
 	"bytes"
+	"context"
+	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTorProcessAccessors(t *testing.T) {
@@ -178,6 +182,133 @@ func TestTeeWriter(t *testing.T) {
 
 		if buf.String() != "test\n" {
 			t.Errorf("expected buffer 'test\\n', got %q", buf.String())
+		}
+	})
+}
+
+// TestTorProcessCrashRecovery tests recovery from Tor process termination.
+// This test verifies that clients can detect when the Tor daemon stops unexpectedly.
+func TestTorProcessCrashRecovery(t *testing.T) {
+	requireIntegration(t)
+
+	// Skip on OpenBSD due to system torrc User option causing permission errors
+	// when launching Tor as non-root user in GitHub Actions environment
+	if runtime.GOOS == "openbsd" {
+		t.Skip("skipping on OpenBSD: system torrc User option conflicts with non-root execution")
+	}
+
+	t.Run("client detects when Tor process stops", func(t *testing.T) {
+		// Launch a dedicated Tor instance for this test
+		launchCfg, err := NewTorLaunchConfig(
+			WithTorSocksAddr(":0"),
+			WithTorControlAddr(":0"),
+			WithTorStartupTimeout(60*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig: %v", err)
+		}
+
+		torProc, err := StartTorDaemon(launchCfg)
+		if err != nil {
+			t.Fatalf("StartTorDaemon: %v", err)
+		}
+		defer torProc.Stop() // Ensure cleanup even if test fails early
+
+		// Create client with control port access to check bootstrap status
+		auth, _, err := ControlAuthFromTor(torProc.ControlAddr(), 5*time.Second)
+		if err != nil {
+			t.Fatalf("ControlAuthFromTor: %v", err)
+		}
+
+		opts := []ClientOption{
+			WithClientSocksAddr(torProc.SocksAddr()),
+			WithClientControlAddr(torProc.ControlAddr()),
+			WithClientDialTimeout(10 * time.Second),
+			WithClientRequestTimeout(30 * time.Second),
+		}
+		if auth.Password() != "" {
+			opts = append(opts, WithClientControlPassword(auth.Password()))
+		} else if auth.CookiePath() != "" {
+			opts = append(opts, WithClientControlCookie(auth.CookiePath()))
+		}
+
+		cfg, err := NewClientConfig(opts...)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// Wait for Tor to be fully bootstrapped by checking status
+		// This is more reliable than time.Sleep
+		if err := waitForTorBootstrap(torProc.ControlAddr(), auth, 60*time.Second); err != nil {
+			t.Fatalf("waitForTorBootstrap: %v", err)
+		}
+
+		// Verify connection works
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("initial request failed: %v", err)
+		}
+		_ = resp.Body.Close()
+
+		// Terminate Tor process
+		// Note: Stop() may return "signal: killed" which is expected
+		// We call Stop explicitly here for the test, defer will handle cleanup on early failures
+		if err := torProc.Stop(); err != nil {
+			t.Logf("Stop returned error (expected): %v", err)
+		}
+
+		// Subsequent requests should fail immediately (no sleep needed)
+		req2, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp2, err := client.Do(req2)
+		if err == nil {
+			_ = resp2.Body.Close()
+			t.Error("expected error after Tor process termination, got nil")
+		}
+	})
+}
+
+// TestTorStartupTimeout tests Tor daemon startup timeout behavior.
+// This test is quick because we use a very short timeout.
+func TestTorStartupTimeout(t *testing.T) {
+	requireIntegration(t)
+
+	t.Run("startup timeout is enforced", func(t *testing.T) {
+		// Use impossibly short timeout to trigger timeout error
+		launchCfg, err := NewTorLaunchConfig(
+			WithTorSocksAddr(":0"),
+			WithTorControlAddr(":0"),
+			WithTorStartupTimeout(1*time.Millisecond), // Too short
+		)
+		if err != nil {
+			t.Fatalf("NewTorLaunchConfig: %v", err)
+		}
+
+		start := time.Now()
+		_, err = StartTorDaemon(launchCfg)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			t.Error("expected timeout error, got nil")
+		}
+
+		// Should fail quickly (within 1 second)
+		if elapsed > 1*time.Second {
+			t.Errorf("timeout took too long: %v (expected < 1s)", elapsed)
 		}
 	})
 }
