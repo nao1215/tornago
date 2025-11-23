@@ -1,4 +1,4 @@
-.PHONY: build test clean help tools changelog integration-test
+.PHONY: build test clean help tools changelog integration-test lint
 
 APP         = tornago
 VERSION     = $(shell git describe --tags --abbrev=0)
@@ -19,8 +19,6 @@ TOR_SOCKS        ?= 127.0.0.1:9050
 TOR_COOKIE       ?= $(HOME)/.tor/control.authcookie
 TOR_PASSWORD     ?=
 
-.PHONY: build test clean help tools changelog integration-test
-
 build:  ## Build binary
 	env GO111MODULE=on GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO_BUILD) $(GO_LDFLAGS) -o $(APP) cmd/$(APP)/main.go
 
@@ -34,6 +32,9 @@ test: ## Run fast unit tests (excludes integration tests)
 integration-test: ## Run all tests including slow integration tests with full coverage
 	$(INTEGRATION_ENV) TORNAGO_INTEGRATION=1 env GOOS=$(GOOS) $(GO_TEST) -cover -coverprofile=coverage-integration.out -count=1 $(shell $(GO) list ./... | grep -v /examples)
 	-$(GO_TOOL) cover -html=coverage-integration.out -o coverage-integration.html
+
+lint: ## Run golangci-lint
+	golangci-lint run
 
 .DEFAULT_GOAL := help
 help: ## Show help message

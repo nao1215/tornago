@@ -1,7 +1,9 @@
 package tornago
 
 import (
+	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -733,6 +735,111 @@ func TestValidationErrorMessages(t *testing.T) {
 		}
 		if !strings.Contains(errMsg, "127.0.0.1:9050") {
 			t.Errorf("error message should show example address 127.0.0.1:9050, got: %s", errMsg)
+		}
+	})
+}
+
+// TestTimeoutBoundaryValues tests various timeout edge cases.
+// These tests run quickly without launching new Tor instances.
+func TestTimeoutBoundaryValues(t *testing.T) {
+	t.Run("zero timeout gets default value", func(t *testing.T) {
+		// Zero timeout is allowed and gets replaced with default
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+			WithClientRequestTimeout(0), // Will use default
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.RequestTimeout() <= 0 {
+			t.Error("expected positive default timeout, got", cfg.RequestTimeout())
+		}
+	})
+
+	t.Run("negative timeout is rejected in config", func(t *testing.T) {
+		_, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+			WithClientRequestTimeout(-1*time.Second), // Invalid: negative timeout
+		)
+		if err == nil {
+			t.Error("expected error for negative timeout, got nil")
+		}
+	})
+
+	t.Run("very short timeout fails quickly", func(t *testing.T) {
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("192.0.2.1:9050"), // TEST-NET-1: unreachable
+			WithClientDialTimeout(1*time.Millisecond),
+			WithClientRequestTimeout(1*time.Millisecond),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		start := time.Now()
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			_ = resp.Body.Close()
+			t.Error("expected timeout error, got nil")
+		}
+
+		// Should fail very quickly (within 500ms for CI tolerance)
+		if elapsed > 500*time.Millisecond {
+			t.Errorf("timeout took too long: %v (expected < 500ms)", elapsed)
+		}
+	})
+
+	t.Run("context deadline is respected", func(t *testing.T) {
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("192.0.2.1:9050"), // TEST-NET-1: unreachable
+			WithClientDialTimeout(5*time.Second),
+			WithClientRequestTimeout(10*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// Context deadline shorter than client timeouts
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			_ = resp.Body.Close()
+			t.Error("expected context deadline error, got nil")
+		}
+
+		// Should fail within ~50ms (context deadline) not 5s (dial timeout)
+		// Allow 500ms tolerance for CI environments
+		if elapsed > 500*time.Millisecond {
+			t.Errorf("timeout took too long: %v (expected < 500ms)", elapsed)
 		}
 	})
 }

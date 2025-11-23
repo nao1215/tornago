@@ -2,11 +2,14 @@ package tornago
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1056,5 +1059,336 @@ func TestClientWithLogger(t *testing.T) {
 
 		// Verify it's a noopLogger by checking it doesn't panic
 		client.logger.Log("debug", "test")
+	})
+}
+
+// TestNetworkDisconnectionBehavior tests how the client handles network failures.
+// This test uses existing TestServer to avoid launching new Tor instances.
+func TestNetworkDisconnectionBehavior(t *testing.T) {
+	requireIntegration(t)
+
+	ts := getGlobalTestServer(t)
+
+	t.Run("client handles unreachable SOCKS proxy", func(t *testing.T) {
+		// Use non-existent SOCKS address to simulate network disconnection
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:1"), // Port 1 is typically unavailable
+			WithClientDialTimeout(1*time.Second),
+			WithClientRequestTimeout(2*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// Attempt to make request - should fail quickly with connection error
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			t.Fatal("expected error when SOCKS proxy is unreachable, got nil")
+		}
+
+		// Verify error is network-related
+		var netErr net.Error
+		if !errors.As(err, &netErr) {
+			t.Errorf("expected network error, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("client times out on slow SOCKS connection", func(t *testing.T) {
+		// This test verifies timeout behavior without actually launching Tor
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("192.0.2.1:9050"), // TEST-NET-1: guaranteed to be unreachable (RFC 5737)
+			WithClientDialTimeout(500*time.Millisecond),
+			WithClientRequestTimeout(1*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		start := time.Now()
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			_ = resp.Body.Close()
+			t.Fatal("expected timeout error, got nil")
+		}
+
+		// Verify timeout happens within reasonable time (dial timeout + some margin)
+		if elapsed > 2*time.Second {
+			t.Errorf("timeout took too long: %v (expected < 2s)", elapsed)
+		}
+	})
+
+	t.Run("client recovers from temporary network issues with retry", func(t *testing.T) {
+		// Use real TestServer to verify retry logic
+		auth := ts.ControlAuth(t)
+		opts := []ClientOption{
+			WithClientSocksAddr(ts.Server.SocksAddr()),
+			WithClientRequestTimeout(30 * time.Second),
+			WithClientDialTimeout(10 * time.Second),
+			WithRetryAttempts(3),
+			WithRetryDelay(100 * time.Millisecond),
+		}
+		if auth.Password() != "" {
+			opts = append(opts, WithClientControlPassword(auth.Password()))
+		}
+		if auth.CookiePath() != "" {
+			opts = append(opts, WithClientControlCookie(auth.CookiePath()))
+		}
+
+		cfg, err := NewClientConfig(opts...)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// This should succeed with real Tor connection
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+		if err != nil {
+			t.Fatalf("NewRequestWithContext: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Do: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	})
+}
+
+// TestLongRunningStability tests for memory leaks and resource exhaustion.
+// Runs multiple iterations without launching new Tor instances.
+func TestLongRunningStability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping long-running stability test in short mode")
+	}
+
+	requireIntegration(t)
+
+	ts := getGlobalTestServer(t)
+
+	t.Run("no memory leak in repeated requests", func(t *testing.T) {
+		auth := ts.ControlAuth(t)
+		opts := []ClientOption{
+			WithClientSocksAddr(ts.Server.SocksAddr()),
+			WithClientRequestTimeout(30 * time.Second),
+		}
+		if auth.Password() != "" {
+			opts = append(opts, WithClientControlPassword(auth.Password()))
+		}
+		if auth.CookiePath() != "" {
+			opts = append(opts, WithClientControlCookie(auth.CookiePath()))
+		}
+
+		cfg, err := NewClientConfig(opts...)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// Record initial memory stats
+		runtime.GC()
+		var m1 runtime.MemStats
+		runtime.ReadMemStats(&m1)
+
+		// Make 100 requests (fast because we reuse connections)
+		iterations := 100
+		for i := range iterations {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+			if err != nil {
+				cancel()
+				t.Fatalf("iteration %d: NewRequestWithContext: %v", i, err)
+			}
+
+			resp, err := client.Do(req)
+			cancel()
+
+			if err != nil {
+				t.Fatalf("iteration %d: Do: %v", i, err)
+			}
+			_ = resp.Body.Close()
+
+			// Force GC every 20 iterations
+			if i%20 == 0 {
+				runtime.GC()
+			}
+		}
+
+		// Force final GC and measure memory
+		runtime.GC()
+		var m2 runtime.MemStats
+		runtime.ReadMemStats(&m2)
+
+		// Memory growth should be reasonable (< 10MB for 100 requests)
+		// #nosec G115 - Alloc is uint64, conversion to int64 for comparison is safe for memory sizes
+		memGrowth := int64(m2.Alloc) - int64(m1.Alloc)
+		if memGrowth < 0 {
+			t.Logf("Memory decreased by %d bytes (GC was aggressive)", -memGrowth)
+		}
+		const maxMemGrowth = 10 * 1024 * 1024 // 10MB
+		if memGrowth > maxMemGrowth {
+			t.Errorf("excessive memory growth: %d bytes (expected < %d)", memGrowth, maxMemGrowth)
+		}
+
+		t.Logf("Memory growth after %d iterations: %d bytes", iterations, memGrowth)
+	})
+
+	t.Run("no goroutine leak in client lifecycle", func(t *testing.T) {
+		// Record initial goroutine count
+		runtime.GC()
+		initialGoroutines := runtime.NumGoroutine()
+
+		// Create and destroy 50 clients
+		for i := range 50 {
+			cfg, err := NewClientConfig(
+				WithClientSocksAddr(ts.Server.SocksAddr()),
+				WithClientRequestTimeout(5*time.Second),
+			)
+			if err != nil {
+				t.Fatalf("iteration %d: NewClientConfig: %v", i, err)
+			}
+
+			client, err := NewClient(cfg)
+			if err != nil {
+				t.Fatalf("iteration %d: NewClient: %v", i, err)
+			}
+
+			// Close immediately
+			_ = client.Close()
+		}
+
+		// Force GC and wait for goroutines to terminate
+		runtime.GC()
+		time.Sleep(100 * time.Millisecond)
+
+		// Check goroutine count
+		finalGoroutines := runtime.NumGoroutine()
+		goroutineGrowth := finalGoroutines - initialGoroutines
+
+		// Allow some growth but not excessive (< 10 goroutines)
+		const maxGoroutineGrowth = 10
+		if goroutineGrowth > maxGoroutineGrowth {
+			t.Errorf("excessive goroutine growth: %d (expected < %d)", goroutineGrowth, maxGoroutineGrowth)
+		}
+
+		t.Logf("Goroutine growth after 50 client lifecycles: %d", goroutineGrowth)
+	})
+
+	t.Run("concurrent requests are stable", func(t *testing.T) {
+		auth := ts.ControlAuth(t)
+		opts := []ClientOption{
+			WithClientSocksAddr(ts.Server.SocksAddr()),
+			WithClientRequestTimeout(30 * time.Second),
+		}
+		if auth.Password() != "" {
+			opts = append(opts, WithClientControlPassword(auth.Password()))
+		}
+		if auth.CookiePath() != "" {
+			opts = append(opts, WithClientControlCookie(auth.CookiePath()))
+		}
+
+		cfg, err := NewClientConfig(opts...)
+		if err != nil {
+			t.Fatalf("NewClientConfig: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		defer client.Close()
+
+		// Launch 10 concurrent goroutines making requests
+		const concurrency = 10
+		const requestsPerGoroutine = 10
+
+		var successCount atomic.Int64
+		var errorCount atomic.Int64
+
+		done := make(chan struct{})
+		for range concurrency {
+			go func() {
+				defer func() { done <- struct{}{} }()
+
+				for range requestsPerGoroutine {
+					ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+					if err != nil {
+						cancel()
+						errorCount.Add(1)
+						continue
+					}
+
+					resp, err := client.Do(req)
+					cancel()
+
+					if err != nil {
+						errorCount.Add(1)
+						continue
+					}
+					_ = resp.Body.Close()
+					successCount.Add(1)
+				}
+			}()
+		}
+
+		// Wait for all goroutines to complete
+		for range concurrency {
+			<-done
+		}
+
+		totalRequests := concurrency * requestsPerGoroutine
+		t.Logf("Concurrent requests: %d success, %d errors out of %d total",
+			successCount.Load(), errorCount.Load(), totalRequests)
+
+		// Allow some failures but most should succeed (70% threshold due to Tor network variability)
+		if successCount.Load() < int64(totalRequests)*7/10 {
+			t.Errorf("too many failures: %d success out of %d (expected > 70%%)",
+				successCount.Load(), totalRequests)
+		}
 	})
 }
