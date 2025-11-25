@@ -584,6 +584,10 @@ The `examples/` directory contains additional working examples:
 
 All examples are tested and ready to run.
 
+## Tool using tornago
+
+- [nao1215/onionlint](https://github.com/nao1215/onionlint): Tor site anonymity linter
+
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.
 
