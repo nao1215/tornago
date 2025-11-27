@@ -21,7 +21,7 @@ jobs:
           - "1.25"
       fail-fast: false
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v6
@@ -43,10 +43,10 @@ jobs:
 
       - name: Install Tor (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           choco install tor -y
-          # Add Tor to PATH
-          echo "C:\ProgramData\chocolatey\lib\tor\tools\Tor" >> $env:GITHUB_PATH
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\ProgramData\chocolatey\lib\tor\tools\Tor"
 
       - name: Run integration tests with coverage
         run: make integration-test

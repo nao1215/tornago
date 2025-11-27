@@ -245,7 +245,8 @@ func TestTorProcessCrashRecovery(t *testing.T) {
 
 		// Wait for Tor to be fully bootstrapped by checking status
 		// This is more reliable than time.Sleep
-		if err := waitForTorBootstrap(torProc.ControlAddr(), auth, 60*time.Second); err != nil {
+		// Use 120 seconds timeout because Tor bootstrap can be slow in CI environments
+		if err := waitForTorBootstrap(torProc.ControlAddr(), auth, 120*time.Second); err != nil {
 			t.Fatalf("waitForTorBootstrap: %v", err)
 		}
 

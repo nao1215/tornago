@@ -277,6 +277,12 @@ type ClientConfig struct {
 	rateLimiter *RateLimiter
 	// logger is an optional structured logger for debugging and monitoring.
 	logger Logger
+	// performanceTracker tracks relay performance for slow relay avoidance.
+	performanceTracker *RelayPerformanceTracker
+	// slowRelayAvoidanceEnabled indicates if slow relay avoidance is enabled.
+	slowRelayAvoidanceEnabled bool
+	// slowRelayOptions contains options for slow relay avoidance.
+	slowRelayOptions []SlowRelayOption
 }
 
 // ClientOption customizes ClientConfig creation.
@@ -328,6 +334,15 @@ func (c ClientConfig) Logger() Logger { return c.logger }
 
 // RateLimiter returns the optional rate limiter.
 func (c ClientConfig) RateLimiter() *RateLimiter { return c.rateLimiter }
+
+// PerformanceTracker returns the optional relay performance tracker.
+func (c ClientConfig) PerformanceTracker() *RelayPerformanceTracker { return c.performanceTracker }
+
+// SlowRelayAvoidanceEnabled returns whether slow relay avoidance is enabled.
+func (c ClientConfig) SlowRelayAvoidanceEnabled() bool { return c.slowRelayAvoidanceEnabled }
+
+// SlowRelayOptions returns the options for slow relay avoidance.
+func (c ClientConfig) SlowRelayOptions() []SlowRelayOption { return c.slowRelayOptions }
 
 // WithClientSocksAddr sets the SocksPort address for the client.
 func WithClientSocksAddr(addr string) ClientOption {
@@ -434,6 +449,83 @@ func WithClientLogger(logger Logger) ClientOption {
 func WithClientRateLimiter(r *RateLimiter) ClientOption {
 	return func(cfg *ClientConfig) {
 		cfg.rateLimiter = r
+	}
+}
+
+// WithClientPerformanceTracker sets a RelayPerformanceTracker for slow relay avoidance.
+// When set, the client can automatically track relay performance and avoid slow relays.
+//
+// Example with default settings (recommended for most users):
+//
+//	tracker := tornago.NewRelayPerformanceTracker()
+//	client, err := tornago.NewClient(
+//	    tornago.WithClientPerformanceTracker(tracker),
+//	)
+//
+// Example with custom thresholds:
+//
+//	threshold := tornago.NewRelayThreshold().
+//	    WithMaxLatency(3 * time.Second).
+//	    WithMinSuccessRate(0.9)
+//	tracker := tornago.NewRelayPerformanceTracker(
+//	    tornago.WithTrackerThreshold(threshold),
+//	)
+//	client, err := tornago.NewClient(
+//	    tornago.WithClientPerformanceTracker(tracker),
+//	)
+func WithClientPerformanceTracker(tracker *RelayPerformanceTracker) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.performanceTracker = tracker
+	}
+}
+
+// WithSlowRelayAvoidance enables automatic slow relay avoidance in the Client.
+// When enabled, the Client automatically tracks relay performance during requests,
+// blocks slow or unreliable relays, and triggers circuit rotation when needed.
+//
+// This is the recommended way to enable slow relay avoidance for most users.
+// The feature works transparently - just make requests normally and the Client
+// handles everything internally.
+//
+// Options can be provided to customize behavior:
+//   - SlowRelayMaxLatency: Maximum acceptable latency (default: 5s)
+//   - SlowRelayMinSuccessRate: Minimum required success rate (default: 0.8)
+//   - SlowRelayBlockDuration: How long to block slow relays (default: 30m)
+//   - SlowRelayMinSamples: Samples needed before judging (default: 3)
+//   - SlowRelayMonitorInterval: Background check interval (default: 30s)
+//   - SlowRelayAutoExclude: Auto-update Tor's ExcludeNodes (default: true)
+//
+// Note: This feature requires ControlPort access. Use WithClientControlAddr()
+// to specify the Tor ControlPort address.
+//
+// Example:
+//
+//	// Enable with defaults
+//	client, err := tornago.NewClient(
+//	    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+//	    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+//	    tornago.WithSlowRelayAvoidance(),
+//	)
+//
+//	// Enable with custom settings
+//	client, err := tornago.NewClient(
+//	    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+//	    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+//	    tornago.WithSlowRelayAvoidance(
+//	        tornago.SlowRelayMaxLatency(3*time.Second),
+//	        tornago.SlowRelayMinSuccessRate(0.9),
+//	    ),
+//	)
+//
+//	// Get performance statistics
+//	stats, ok := client.RelayPerformanceStats()
+//	if ok {
+//	    fmt.Printf("Tracked relays: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+//	}
+func WithSlowRelayAvoidance(opts ...SlowRelayOption) ClientOption {
+	return func(cfg *ClientConfig) {
+		cfg.slowRelayAvoidanceEnabled = true
+		cfg.slowRelayOptions = opts
 	}
 }
 

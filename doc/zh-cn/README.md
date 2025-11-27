@@ -141,6 +141,64 @@ brew install tor
 
 完整代码示例请参见[英文 README](../../README.md#quick-start)。
 
+## 慢速中继规避
+
+Tornago 包含一个自动性能跟踪系统，可检测并规避慢速 Tor 中继。只需通过一个选项启用，客户端会在内部处理一切。
+
+### 基本用法（推荐）
+
+```go
+// 创建启用慢速中继规避的客户端
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // 使用默认设置启用
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// 正常发送请求 - 一切自动处理
+resp, err := client.Do(req)
+
+// 可选地检查性能统计
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("跟踪中: %d, 已阻止: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### 自定义阈值配置
+
+```go
+// 使用自定义设置启用，满足更严格的要求
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // 阻止慢于3秒的中继
+        tornago.SlowRelayMinSuccessRate(0.9),         // 要求90%成功率
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // 阻止1小时
+        tornago.SlowRelayMinSamples(5),               // 判断前需要5个样本
+        tornago.SlowRelayMonitorInterval(15*time.Second), // 每15秒检查一次
+    ),
+)
+```
+
+### 默认阈值
+
+| 参数 | 默认值 | 描述 |
+|-----------|---------|-------------|
+| MaxLatency | 5秒 | 比这慢的中继被视为"慢速" |
+| MinSuccessRate | 80% | 成功率较低的中继会被阻止 |
+| BlockDuration | 30分钟 | 慢速中继保持阻止的时长 |
+| MinSamples | 3 | 评估前所需的最小测量次数 |
+| MonitorInterval | 30秒 | 电路轮换的后台检查间隔 |
+| AutoExclude | true | 自动更新 Tor 的 ExcludeNodes |
+
+完整工作示例请参见 [`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go)。
+
 ## 更多示例
 
 `examples/` 目录包含其他工作示例。所有示例均已测试并可立即运行。

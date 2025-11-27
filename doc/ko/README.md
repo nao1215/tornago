@@ -141,6 +141,64 @@ brew install tor
 
 전체 코드 예제는 [영문 README](../../README.md#quick-start)를 참조하세요.
 
+## 느린 릴레이 회피
+
+Tornago에는 느린 Tor 릴레이를 자동으로 감지하고 회피하는 성능 추적 시스템이 포함되어 있습니다. 하나의 옵션으로 활성화하기만 하면 클라이언트가 내부적으로 모든 것을 처리합니다.
+
+### 기본 사용법 (권장)
+
+```go
+// 느린 릴레이 회피가 활성화된 클라이언트 생성
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // 기본값으로 활성화
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// 정상적으로 요청 실행 - 모든 것이 자동으로 처리됩니다
+resp, err := client.Do(req)
+
+// 선택적으로 성능 통계 확인
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("추적 중: %d, 차단됨: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### 사용자 정의 임계값 설정
+
+```go
+// 더 엄격한 요구 사항을 위한 사용자 정의 설정으로 활성화
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // 3초보다 느린 릴레이 차단
+        tornago.SlowRelayMinSuccessRate(0.9),         // 90% 성공률 요구
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // 1시간 동안 차단
+        tornago.SlowRelayMinSamples(5),               // 판단 전 5개 샘플 필요
+        tornago.SlowRelayMonitorInterval(15*time.Second), // 15초마다 확인
+    ),
+)
+```
+
+### 기본 임계값
+
+| 매개변수 | 기본값 | 설명 |
+|-----------|---------|-------------|
+| MaxLatency | 5초 | 이보다 느린 릴레이는 "느림"으로 간주됩니다 |
+| MinSuccessRate | 80% | 성공률이 낮은 릴레이는 차단됩니다 |
+| BlockDuration | 30분 | 느린 릴레이가 차단되는 기간 |
+| MinSamples | 3 | 평가 전 필요한 최소 측정 횟수 |
+| MonitorInterval | 30초 | 회로 교체를 위한 백그라운드 확인 간격 |
+| AutoExclude | true | Tor의 ExcludeNodes 자동 업데이트 |
+
+전체 작동 예제는 [`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go)를 참조하세요.
+
 ## 더 많은 예제
 
 `examples/` 디렉토리에는 추가 작동 예제가 포함되어 있습니다. 모든 예제는 테스트되어 바로 실행할 수 있습니다.

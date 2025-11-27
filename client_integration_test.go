@@ -161,11 +161,16 @@ func TestClientIntegration(t *testing.T) {
 		}
 
 		// Hidden service connections can take time to propagate through the Tor network.
-		// Retry with backoff to handle transient failures.
+		// Use shorter timeouts with more retries to fail faster on transient errors
+		// while still allowing enough total time for propagation.
+		const maxAttempts = 8
+		const requestTimeout = 30 * time.Second
+		const baseBackoff = 5 * time.Second
+
 		var resp *http.Response
 		var lastErr error
-		for attempt := 1; attempt <= 5; attempt++ {
-			reqCtx, reqCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			reqCtx, reqCancel := context.WithTimeout(context.Background(), requestTimeout)
 			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "http://"+hs.OnionAddress(), http.NoBody)
 			if err != nil {
 				reqCancel()
@@ -176,13 +181,18 @@ func TestClientIntegration(t *testing.T) {
 			if lastErr == nil {
 				break
 			}
-			t.Logf("attempt %d failed: %v", attempt, lastErr)
-			if attempt < 5 {
-				time.Sleep(time.Duration(attempt*10) * time.Second)
+			t.Logf("attempt %d/%d failed: %v", attempt, maxAttempts, lastErr)
+			if attempt < maxAttempts {
+				// Exponential backoff: 5s, 10s, 15s, 20s, 25s, 30s, 35s
+				backoff := baseBackoff * time.Duration(attempt)
+				if backoff > 35*time.Second {
+					backoff = 35 * time.Second
+				}
+				time.Sleep(backoff)
 			}
 		}
 		if lastErr != nil {
-			t.Fatalf("failed to GET hidden service after retries: %v", lastErr)
+			t.Fatalf("failed to GET hidden service after %d attempts: %v", maxAttempts, lastErr)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
@@ -305,6 +315,70 @@ func TestClientIntegration(t *testing.T) {
 			t.Fatalf("GetStreamStatus: %v", err)
 		}
 		t.Logf("streams: %d", len(streams))
+	})
+
+	t.Run("SlowRelayAvoidance", func(t *testing.T) {
+		// Create client with slow relay avoidance enabled
+		clientCfg, err := NewClientConfig(
+			WithClientSocksAddr(ts.Server.SocksAddr()),
+			WithClientControlAddr(ts.Server.ControlAddr()),
+			WithClientRequestTimeout(60*time.Second),
+			WithSlowRelayAvoidance(
+				SlowRelayMaxLatency(10*time.Second),
+				SlowRelayMinSuccessRate(0.5),
+				SlowRelayMinSamples(1),
+				SlowRelayMonitorInterval(5*time.Second),
+			),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		slowRelayClient, err := NewClient(clientCfg)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+		defer slowRelayClient.Close()
+
+		// Verify slow relay avoidance is enabled
+		stats, ok := slowRelayClient.RelayPerformanceStats()
+		if !ok {
+			t.Fatal("expected RelayPerformanceStats to return ok=true")
+		}
+		if !stats.Enabled() {
+			t.Error("expected stats.Enabled() to be true")
+		}
+
+		// Make a request to trigger performance measurement
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+		if err != nil {
+			t.Fatalf("failed to create request: %v", err)
+		}
+
+		resp, err := slowRelayClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// After a request, there should be some tracked relays
+		stats, ok = slowRelayClient.RelayPerformanceStats()
+		if !ok {
+			t.Fatal("expected RelayPerformanceStats to return ok=true after request")
+		}
+		t.Logf("Tracked relays: %d, Blocked relays: %d", stats.TrackedRelays(), stats.BlockedRelays())
+
+		// Verify threshold configuration
+		threshold := stats.Threshold()
+		if threshold.MaxLatency() != 10*time.Second {
+			t.Errorf("MaxLatency = %v, want %v", threshold.MaxLatency(), 10*time.Second)
+		}
+		if threshold.MinSuccessRate() != 0.5 {
+			t.Errorf("MinSuccessRate = %v, want %v", threshold.MinSuccessRate(), 0.5)
+		}
 	})
 }
 

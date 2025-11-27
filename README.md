@@ -39,7 +39,7 @@ To prevent potential misuse, tornago is intentionally kept as a thin wrapper aro
 
 ## How Tor Works
 
-Tor (The Onion Router) provides anonymity by routing traffic through multiple encrypted layers. Understanding this mechanism helps you use tornago eを作る必要がありますffectively.
+Tor (The Onion Router) provides anonymity by routing traffic through multiple encrypted layers. Understanding this mechanism helps you use tornago effectively.
 
 ### Onion Routing: Multi-Layer Encryption
 
@@ -132,7 +132,7 @@ graph LR
 
 Tornago requires the Tor daemon to be installed on your system. The library has been tested with Tor version 0.4.8.x and should work with newer versions.
 
-**Installation:**を作る必要があります
+**Installation:**
 
 ```bash
 # Ubuntu/Debian
@@ -568,6 +568,117 @@ You can now access your hidden service through Tor Browser or any Tor client usi
 
 <img src="./doc/images/tornago-server-example.png" alt="onion site" width="500"/>
 
+## Slow Relay Avoidance
+
+Tornago includes an automatic performance tracking system that detects and avoids slow Tor relays. Simply enable it with one option and the client handles everything internally.
+
+### Basic Usage (Recommended)
+
+```go
+// Create client with slow relay avoidance enabled
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // Enable with defaults
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// Make requests normally - everything is handled automatically
+resp, err := client.Do(req)
+
+// Optionally check performance statistics
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### Custom Threshold Configuration
+
+```go
+// Enable with custom settings for stricter requirements
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // Block relays slower than 3s
+        tornago.SlowRelayMinSuccessRate(0.9),         // Require 90% success rate
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // Block for 1 hour
+        tornago.SlowRelayMinSamples(5),               // Need 5 samples before judging
+        tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+    ),
+)
+```
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant App as Your Application
+    participant Client as Tornago Client
+    participant Tor as Tor Daemon
+    participant Network as Tor Network
+
+    Note over App,Network: Phase 1: Normal Operation with Automatic Measurement
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTP Request
+    Tor->>Network: Route through Circuit<br/>(Guard → Middle → Exit)
+    Network-->>Tor: Response
+    Tor-->>Client: Response (latency: 2s)
+    Client->>Client: Auto-record measurement<br/>for all relays in circuit
+    Client-->>App: Response
+
+    Note over App,Network: Phase 2: Slow Relay Detected
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTP Request
+    Tor->>Network: Route through Circuit
+    Network-->>Tor: Response (slow)
+    Tor-->>Client: Response (latency: 8s)
+    Client->>Client: Auto-record measurement<br/>Exit: avg=5s exceeds threshold!<br/>→ Block slow relay
+
+    alt Auto-Exclude Enabled (default)
+        Client->>Tor: SETCONF ExcludeNodes=$fingerprint
+        Note over Tor: Tor will avoid<br/>this relay
+    end
+
+    Client-->>App: Response
+
+    Note over App,Network: Phase 3: Background Monitor Rotation
+
+    Client->>Tor: GETINFO circuit-status
+    Tor-->>Client: Circuit paths
+    Client->>Client: Check if circuit uses blocked relay
+    Client->>Tor: SIGNAL NEWNYM
+    Note over Tor: Build new circuit<br/>without slow relay
+
+    Note over App,Network: Phase 4: Improved Performance
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTP Request
+    Tor->>Network: Route through new circuit
+    Network-->>Tor: Response (fast)
+    Tor-->>Client: Response (latency: 1.5s)
+    Client-->>App: Response (OK)
+```
+
+### Default Threshold Values
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| MaxLatency | 5 seconds | Relays slower than this are considered "slow" |
+| MinSuccessRate | 80% | Relays with lower success rate are blocked |
+| BlockDuration | 30 minutes | How long slow relays remain blocked |
+| MinSamples | 3 | Minimum measurements needed before evaluation |
+| MonitorInterval | 30 seconds | Background check interval for circuit rotation |
+| AutoExclude | true | Automatically update Tor's ExcludeNodes |
+
+See [`examples/slow_relay_avoidance`](examples/slow_relay_avoidance/main.go) for a complete working example.
+
 ## More Examples
 
 The `examples/` directory contains additional working examples:
@@ -581,6 +692,7 @@ The `examples/` directory contains additional working examples:
 - [`metrics_ratelimit`](examples/metrics_ratelimit/main.go) - Metrics collection and rate limiting
 - [`persistent_onion`](examples/persistent_onion/main.go) - Hidden Service with persistent key
 - [`observability`](examples/observability/main.go) - Structured logging, metrics, and health checks
+- [`slow_relay_avoidance`](examples/slow_relay_avoidance/main.go) - Automatic slow relay detection and avoidance
 
 All examples are tested and ready to run.
 

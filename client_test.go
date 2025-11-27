@@ -981,6 +981,92 @@ func TestNewClientWithControl(t *testing.T) {
 	})
 }
 
+func TestNewClientWithSlowRelayAvoidance(t *testing.T) {
+	t.Run("should reject slow relay avoidance without control port", func(t *testing.T) {
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+			WithSlowRelayAvoidance(),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		_, err = NewClient(cfg)
+		if err == nil {
+			t.Error("expected error when slow relay avoidance enabled without control port")
+		}
+	})
+
+	t.Run("should accept slow relay avoidance with control port", func(t *testing.T) {
+		// Create mock control server
+		lc := net.ListenConfig{}
+		listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to create listener: %v", err)
+		}
+		defer listener.Close()
+
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			// Simulate authentication success
+			buf := make([]byte, 1024)
+			_, _ = conn.Read(buf)                   //nolint:errcheck
+			_, _ = conn.Write([]byte("250 OK\r\n")) //nolint:errcheck
+		}()
+
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+			WithClientControlAddr(listener.Addr().String()),
+			WithSlowRelayAvoidance(
+				SlowRelayMaxLatency(3*time.Second),
+				SlowRelayMinSuccessRate(0.9),
+			),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+		defer client.Close()
+
+		// Verify relay performance stats are available
+		stats, ok := client.RelayPerformanceStats()
+		if !ok {
+			t.Error("expected ok to be true when slow relay avoidance enabled")
+		}
+		if !stats.Enabled() {
+			t.Error("expected stats.Enabled() to be true")
+		}
+	})
+
+	t.Run("should return false when slow relay avoidance disabled", func(t *testing.T) {
+		cfg, err := NewClientConfig(
+			WithClientSocksAddr("127.0.0.1:9050"),
+		)
+		if err != nil {
+			t.Fatalf("NewClientConfig failed: %v", err)
+		}
+
+		client, err := NewClient(cfg)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+		defer client.Close()
+
+		_, ok := client.RelayPerformanceStats()
+		if ok {
+			t.Error("expected ok to be false when slow relay avoidance disabled")
+		}
+	})
+}
+
 func TestConsumeConnectReplyIPv6(t *testing.T) {
 	t.Run("should handle IPv6 address in CONNECT reply", func(t *testing.T) {
 		// Create a pipe to simulate connection
