@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-11-27
+
+### Added
+- **Slow Relay Avoidance**: Automatic detection and avoidance of slow Tor relays
+  - `WithSlowRelayAvoidance()` option for easy enablement with sensible defaults
+  - Configurable thresholds via functional options:
+    - `SlowRelayMaxLatency()` - Maximum acceptable latency (default: 5s)
+    - `SlowRelayMinSuccessRate()` - Minimum success rate (default: 80%)
+    - `SlowRelayBlockDuration()` - How long to block slow relays (default: 30min)
+    - `SlowRelayMinSamples()` - Samples needed before evaluation (default: 3)
+    - `SlowRelayMonitorInterval()` - Background check interval (default: 30s)
+  - `RelayPerformanceStats()` method to query performance statistics
+  - Automatic circuit rotation when slow relays are detected
+  - Auto-exclude blocked relays from Tor's circuit building via `ExcludeNodes`
+- New example: `examples/slow_relay_avoidance/` demonstrating the feature
+- Documentation with Mermaid sequence diagram explaining how slow relay avoidance works
+
+### Changed
+- Extended Tor bootstrap timeout in `TestTorProcessCrashRecovery` (60s → 120s) for CI stability
+
 ## [0.3.1] - 2025-11-23
 
 ### Added
@@ -107,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed initial Windows support (re-added in later version)
 
-[Unreleased]: https://github.com/nao1215/tornago/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/nao1215/tornago/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/nao1215/tornago/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/nao1215/tornago/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nao1215/tornago/compare/v0.1.0...v0.2.0
