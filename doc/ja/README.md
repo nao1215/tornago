@@ -253,6 +253,117 @@ Response preview (first 500 bytes):
 <!doctype html><html lang="en"><head><title>Example Domain</title>...
 ```
 
+## 遅いリレー回避
+
+Tornagoには、遅いTorリレーを自動的に検出して回避するパフォーマンス追跡システムが含まれています。1つのオプションで有効にするだけで、クライアントが内部ですべてを処理します。
+
+### 基本的な使い方（推奨）
+
+```go
+// 遅いリレー回避を有効にしてクライアントを作成
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // デフォルト設定で有効化
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// 通常どおりリクエストを実行 - すべて自動的に処理されます
+resp, err := client.Do(req)
+
+// オプションでパフォーマンス統計を確認
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("追跡中: %d, ブロック中: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### カスタムしきい値設定
+
+```go
+// より厳しい要件のためのカスタム設定で有効化
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // 3秒より遅いリレーをブロック
+        tornago.SlowRelayMinSuccessRate(0.9),         // 90%の成功率を要求
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // 1時間ブロック
+        tornago.SlowRelayMinSamples(5),               // 判定前に5サンプル必要
+        tornago.SlowRelayMonitorInterval(15*time.Second), // 15秒ごとにチェック
+    ),
+)
+```
+
+### 動作の仕組み
+
+```mermaid
+sequenceDiagram
+    participant App as アプリケーション
+    participant Client as Tornagoクライアント
+    participant Tor as Torデーモン
+    participant Network as Torネットワーク
+
+    Note over App,Network: フェーズ1: 自動計測による通常操作
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTPリクエスト
+    Tor->>Network: 回線経由でルーティング<br/>(ガード → 中間 → 出口)
+    Network-->>Tor: レスポンス
+    Tor-->>Client: レスポンス (遅延: 2秒)
+    Client->>Client: 回線内の全リレーの<br/>計測を自動記録
+    Client-->>App: レスポンス
+
+    Note over App,Network: フェーズ2: 遅いリレーを検出
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTPリクエスト
+    Tor->>Network: 回線経由でルーティング
+    Network-->>Tor: レスポンス (遅い)
+    Tor-->>Client: レスポンス (遅延: 8秒)
+    Client->>Client: 計測を自動記録<br/>出口: 平均5秒がしきい値超過!<br/>→ 遅いリレーをブロック
+
+    alt 自動除外が有効 (デフォルト)
+        Client->>Tor: SETCONF ExcludeNodes=$fingerprint
+        Note over Tor: Torはこのリレーを<br/>回避します
+    end
+
+    Client-->>App: レスポンス
+
+    Note over App,Network: フェーズ3: バックグラウンド監視によるローテーション
+
+    Client->>Tor: GETINFO circuit-status
+    Tor-->>Client: 回線パス
+    Client->>Client: 回線がブロック済みリレーを使用しているか確認
+    Client->>Tor: SIGNAL NEWNYM
+    Note over Tor: 遅いリレーなしで<br/>新しい回線を構築
+
+    Note over App,Network: フェーズ4: パフォーマンス向上
+
+    App->>Client: client.Do(req)
+    Client->>Tor: HTTPリクエスト
+    Tor->>Network: 新しい回線経由でルーティング
+    Network-->>Tor: レスポンス (高速)
+    Tor-->>Client: レスポンス (遅延: 1.5秒)
+    Client-->>App: レスポンス ✓
+```
+
+### デフォルトのしきい値
+
+| パラメータ | デフォルト | 説明 |
+|-----------|---------|-------------|
+| MaxLatency | 5秒 | これより遅いリレーは「遅い」とみなされます |
+| MinSuccessRate | 80% | 成功率がこれより低いリレーはブロックされます |
+| BlockDuration | 30分 | 遅いリレーがブロックされる期間 |
+| MinSamples | 3 | 評価前に必要な最小計測回数 |
+| MonitorInterval | 30秒 | 回線ローテーションのバックグラウンドチェック間隔 |
+| AutoExclude | true | TorのExcludeNodesを自動更新 |
+
+完全な動作例は[`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go)を参照してください。
+
 ## その他の例
 
 `examples/`ディレクトリには追加の動作例があります：
@@ -266,6 +377,7 @@ Response preview (first 500 bytes):
 - [`metrics_ratelimit`](../../examples/metrics_ratelimit/main.go) - メトリクス収集とレート制限
 - [`persistent_onion`](../../examples/persistent_onion/main.go) - 永続鍵を使用したHidden Service
 - [`observability`](../../examples/observability/main.go) - 構造化ロギング、メトリクス、ヘルスチェック
+- [`slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go) - 自動的な遅いリレー検出と回避
 
 すべての例はテスト済みで、すぐに実行可能です。
 

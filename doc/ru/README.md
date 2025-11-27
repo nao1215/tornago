@@ -141,6 +141,64 @@ brew install tor
 
 См. [README на английском](../../README.md#quick-start) для полных примеров кода.
 
+## Обход медленных реле
+
+Tornago включает автоматическую систему отслеживания производительности, которая обнаруживает и избегает медленные Tor-реле. Просто включите её одной опцией, и клиент будет обрабатывать всё внутренне.
+
+### Базовое использование (рекомендуется)
+
+```go
+// Создание клиента с включённым обходом медленных реле
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // Включить с настройками по умолчанию
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// Выполнение запросов как обычно - всё обрабатывается автоматически
+resp, err := client.Do(req)
+
+// Опционально проверить статистику производительности
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("Отслеживается: %d, Заблокировано: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### Настройка пользовательских порогов
+
+```go
+// Включить с пользовательскими настройками для более строгих требований
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // Блокировать реле медленнее 3с
+        tornago.SlowRelayMinSuccessRate(0.9),         // Требовать 90% успешности
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // Блокировать на 1 час
+        tornago.SlowRelayMinSamples(5),               // Нужно 5 образцов перед оценкой
+        tornago.SlowRelayMonitorInterval(15*time.Second), // Проверять каждые 15с
+    ),
+)
+```
+
+### Пороговые значения по умолчанию
+
+| Параметр | По умолчанию | Описание |
+|-----------|---------|-------------|
+| MaxLatency | 5 секунд | Реле медленнее считаются "медленными" |
+| MinSuccessRate | 80% | Реле с более низким показателем успеха блокируются |
+| BlockDuration | 30 минут | Как долго медленные реле остаются заблокированными |
+| MinSamples | 3 | Минимум измерений до оценки |
+| MonitorInterval | 30 секунд | Интервал фоновой проверки для ротации цепей |
+| AutoExclude | true | Автоматически обновлять ExcludeNodes Tor |
+
+См. [`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go) для полного рабочего примера.
+
 ## Дополнительные примеры
 
 Директория `examples/` содержит дополнительные рабочие примеры. Все примеры протестированы и готовы к запуску.

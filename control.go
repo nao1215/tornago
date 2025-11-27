@@ -18,6 +18,9 @@ import (
 const (
 	// opControlClient labels errors originating from ControlClient operations.
 	opControlClient = "ControlClient"
+
+	// CircuitStatusBuilt indicates a circuit has been fully established.
+	CircuitStatusBuilt = "BUILT"
 )
 
 // ControlClient talks to Tor's ControlPort (a text-based management interface
@@ -224,6 +227,26 @@ func (c *ControlClient) ResetConf(ctx context.Context, key string) error {
 	}
 	_, err := c.execCommand(ctx, "RESETCONF "+key)
 	return err
+}
+
+// ExcludeNodes sets the ExcludeNodes configuration to avoid specific relays.
+// The fingerprints should be relay fingerprints (40-character hex strings),
+// optionally prefixed with '$'.
+//
+// Example:
+//
+//	err := ctrl.ExcludeNodes(ctx, []string{"$AAAA...", "$BBBB..."})
+func (c *ControlClient) ExcludeNodes(ctx context.Context, fingerprints []string) error {
+	if len(fingerprints) == 0 {
+		return c.ResetConf(ctx, "ExcludeNodes")
+	}
+	nodeList := strings.Join(fingerprints, ",")
+	return c.SetConf(ctx, "ExcludeNodes", nodeList)
+}
+
+// ClearExcludeNodes removes all entries from the ExcludeNodes configuration.
+func (c *ControlClient) ClearExcludeNodes(ctx context.Context) error {
+	return c.ResetConf(ctx, "ExcludeNodes")
 }
 
 // SaveConf saves the current configuration to the torrc file.

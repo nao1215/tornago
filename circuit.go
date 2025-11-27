@@ -40,20 +40,37 @@ type CircuitManager struct {
 	mu sync.Mutex
 	// running indicates if auto-rotation is active.
 	running bool
+	// performanceTracker tracks relay performance for slow relay avoidance.
+	performanceTracker *RelayPerformanceTracker
+	// performanceMonitorInterval is how often to check circuit performance.
+	performanceMonitorInterval time.Duration
+	// performanceMonitorRunning indicates if performance monitoring is active.
+	performanceMonitorRunning bool
+	// performanceStopCh signals the performance monitor to stop.
+	performanceStopCh chan struct{}
 }
 
 // NewCircuitManager creates a new CircuitManager with the given ControlClient.
 func NewCircuitManager(control *ControlClient) *CircuitManager {
 	return &CircuitManager{
-		control: control,
-		logger:  noopLogger{},
-		stopCh:  make(chan struct{}),
+		control:           control,
+		logger:            noopLogger{},
+		stopCh:            make(chan struct{}),
+		performanceStopCh: make(chan struct{}),
 	}
 }
 
 // WithLogger sets a logger for circuit management operations.
 func (m *CircuitManager) WithLogger(logger Logger) *CircuitManager {
 	m.logger = logger
+	return m
+}
+
+// WithPerformanceTracker sets a RelayPerformanceTracker for slow relay avoidance.
+// When set, the CircuitManager will monitor circuit performance and automatically
+// rotate circuits that use slow relays.
+func (m *CircuitManager) WithPerformanceTracker(tracker *RelayPerformanceTracker) *CircuitManager {
+	m.performanceTracker = tracker
 	return m
 }
 
@@ -193,6 +210,10 @@ type CircuitStats struct {
 	AutoRotationEnabled bool
 	// RotationInterval is the configured rotation interval (0 if not running).
 	RotationInterval time.Duration
+	// PerformanceMonitorEnabled indicates if performance monitoring is running.
+	PerformanceMonitorEnabled bool
+	// PerformanceMonitorInterval is the configured performance monitor interval.
+	PerformanceMonitorInterval time.Duration
 }
 
 // Stats returns current statistics about circuit management.
@@ -201,7 +222,134 @@ func (m *CircuitManager) Stats() CircuitStats {
 	defer m.mu.Unlock()
 
 	return CircuitStats{
-		AutoRotationEnabled: m.running,
-		RotationInterval:    m.rotationInterval,
+		AutoRotationEnabled:        m.running,
+		RotationInterval:           m.rotationInterval,
+		PerformanceMonitorEnabled:  m.performanceMonitorRunning,
+		PerformanceMonitorInterval: m.performanceMonitorInterval,
 	}
+}
+
+// defaultPerformanceMonitorInterval is the default interval for performance monitoring.
+const defaultPerformanceMonitorInterval = 30 * time.Second
+
+// StartPerformanceMonitor begins monitoring circuit performance and rotating slow circuits.
+// This requires a RelayPerformanceTracker to be set via WithPerformanceTracker.
+//
+// The monitor periodically checks circuit latency and rotates circuits that use slow relays.
+// This is useful for:
+//   - Automatically avoiding slow Tor relays
+//   - Maintaining consistent performance
+//   - Adapting to network conditions
+//
+// Example:
+//
+//	tracker := tornago.NewRelayPerformanceTracker()
+//	manager.WithPerformanceTracker(tracker)
+//	manager.StartPerformanceMonitor(ctx, 30*time.Second)
+func (m *CircuitManager) StartPerformanceMonitor(ctx context.Context, interval time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.performanceMonitorRunning {
+		return newError(ErrInvalidConfig, opCircuitManager, "performance monitor already running", nil)
+	}
+
+	if m.performanceTracker == nil {
+		return newError(ErrInvalidConfig, opCircuitManager, "performance tracker not set", nil)
+	}
+
+	if interval <= 0 {
+		interval = defaultPerformanceMonitorInterval
+	}
+
+	m.performanceMonitorInterval = interval
+	m.performanceMonitorRunning = true
+
+	m.logger.Log("info", "starting performance monitor", "interval", interval)
+
+	go m.performanceMonitorLoop(ctx)
+
+	return nil
+}
+
+// performanceMonitorLoop runs the performance monitoring logic.
+func (m *CircuitManager) performanceMonitorLoop(ctx context.Context) {
+	ticker := time.NewTicker(m.performanceMonitorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.logger.Log("info", "performance monitor stopped", "reason", "context canceled")
+			m.mu.Lock()
+			m.performanceMonitorRunning = false
+			m.mu.Unlock()
+			return
+
+		case <-m.performanceStopCh:
+			m.logger.Log("info", "performance monitor stopped", "reason", "stop requested")
+			m.mu.Lock()
+			m.performanceMonitorRunning = false
+			m.mu.Unlock()
+			return
+
+		case <-ticker.C:
+			m.checkAndRotateSlowCircuits(ctx)
+		}
+	}
+}
+
+// checkAndRotateSlowCircuits checks current circuits and rotates if any use blocked relays.
+func (m *CircuitManager) checkAndRotateSlowCircuits(ctx context.Context) {
+	if m.performanceTracker == nil {
+		return
+	}
+
+	circuits, err := m.control.GetCircuitStatus(ctx)
+	if err != nil {
+		m.logger.Log("error", "failed to get circuit status", "error", err)
+		return
+	}
+
+	for _, circuit := range circuits {
+		if circuit.Status != CircuitStatusBuilt {
+			continue
+		}
+
+		for _, relay := range circuit.Path {
+			fp := NewRelayFingerprint(relay)
+			if m.performanceTracker.IsBlocked(fp) {
+				m.logger.Log("info", "rotating circuit with blocked relay",
+					"circuit_id", circuit.ID,
+					"relay", fp.String())
+
+				if err := m.control.NewIdentity(ctx); err != nil {
+					m.logger.Log("error", "failed to rotate circuit", "error", err)
+				}
+				return // One rotation is enough
+			}
+		}
+	}
+}
+
+// StopPerformanceMonitor stops the performance monitor if running.
+func (m *CircuitManager) StopPerformanceMonitor() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.performanceMonitorRunning {
+		return
+	}
+
+	m.logger.Log("info", "stopping performance monitor")
+	select {
+	case m.performanceStopCh <- struct{}{}:
+	default:
+	}
+	m.performanceMonitorRunning = false
+}
+
+// PerformanceTracker returns the configured RelayPerformanceTracker, or nil if not set.
+func (m *CircuitManager) PerformanceTracker() *RelayPerformanceTracker {
+	return m.performanceTracker
 }

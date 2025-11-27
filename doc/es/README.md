@@ -141,6 +141,64 @@ brew install tor
 
 Ver [README en inglés](../../README.md#quick-start) para ejemplos de código completos.
 
+## Evasión de Relés Lentos
+
+Tornago incluye un sistema de seguimiento de rendimiento automático que detecta y evita relés Tor lentos. Simplemente habilítelo con una opción y el cliente maneja todo internamente.
+
+### Uso Básico (Recomendado)
+
+```go
+// Crear cliente con evasión de relés lentos habilitada
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // Habilitar con valores predeterminados
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// Hacer solicitudes normalmente - todo se maneja automáticamente
+resp, err := client.Do(req)
+
+// Opcionalmente verificar estadísticas de rendimiento
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("Rastreados: %d, Bloqueados: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### Configuración de Umbrales Personalizados
+
+```go
+// Habilitar con configuración personalizada para requisitos más estrictos
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // Bloquear relés más lentos que 3s
+        tornago.SlowRelayMinSuccessRate(0.9),         // Requerir 90% de tasa de éxito
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // Bloquear por 1 hora
+        tornago.SlowRelayMinSamples(5),               // Necesitar 5 muestras antes de juzgar
+        tornago.SlowRelayMonitorInterval(15*time.Second), // Verificar cada 15s
+    ),
+)
+```
+
+### Valores de Umbral Predeterminados
+
+| Parámetro | Predeterminado | Descripción |
+|-----------|---------|-------------|
+| MaxLatency | 5 segundos | Relés más lentos se consideran "lentos" |
+| MinSuccessRate | 80% | Relés con menor tasa de éxito se bloquean |
+| BlockDuration | 30 minutos | Cuánto tiempo permanecen bloqueados los relés lentos |
+| MinSamples | 3 | Mediciones mínimas necesarias antes de la evaluación |
+| MonitorInterval | 30 segundos | Intervalo de verificación en segundo plano para rotación de circuito |
+| AutoExclude | true | Actualizar automáticamente ExcludeNodes de Tor |
+
+Ver [`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go) para un ejemplo completo funcional.
+
 ## Más Ejemplos
 
 El directorio `examples/` contiene ejemplos funcionales adicionales. Todos los ejemplos están probados y listos para ejecutar.

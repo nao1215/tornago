@@ -58,6 +58,8 @@ type Client struct {
 	rateLimiter *RateLimiter
 	// logger provides structured logging (optional).
 	logger Logger
+	// slowRelayAvoidance manages slow relay detection and avoidance.
+	slowRelayAvoidance *slowRelayAvoidanceManager
 }
 
 // NewDefaultClient creates a Client with default settings for connecting to a
@@ -163,6 +165,24 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		client.control = controlClient
 	}
 
+	// Initialize slow relay avoidance if enabled
+	if cfg.SlowRelayAvoidanceEnabled() {
+		if client.control == nil {
+			return nil, newError(ErrInvalidConfig, "NewClient",
+				"slow relay avoidance requires ControlPort access; use WithClientControlAddr()", nil)
+		}
+		client.slowRelayAvoidance = newSlowRelayAvoidanceManager(
+			client.control,
+			client.logger,
+			cfg.SlowRelayOptions()...,
+		)
+		// Start the background monitor
+		client.slowRelayAvoidance.start(client.slowRelayAvoidance.monitorInterval())
+		client.logger.Log("info", "slow relay avoidance enabled",
+			"monitor_interval", client.slowRelayAvoidance.monitorInterval(),
+		)
+	}
+
 	return client, nil
 }
 
@@ -179,6 +199,26 @@ func (c *Client) Control() *ControlClient {
 // Metrics returns the metrics collector, which may be nil if not configured.
 func (c *Client) Metrics() *MetricsCollector {
 	return c.metrics
+}
+
+// RelayPerformanceStats returns statistics about relay performance tracking.
+// The second return value indicates whether slow relay avoidance is enabled.
+// If not enabled, returns a zero-value RelayPerformanceStats and false.
+//
+// The returned struct is a copy and can be safely modified without affecting
+// internal state.
+//
+// Example:
+//
+//	stats, ok := client.RelayPerformanceStats()
+//	if ok {
+//	    fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays, stats.BlockedRelays)
+//	}
+func (c *Client) RelayPerformanceStats() (RelayPerformanceStats, bool) {
+	if c.slowRelayAvoidance == nil {
+		return RelayPerformanceStats{}, false
+	}
+	return c.slowRelayAvoidance.stats(), true
 }
 
 // Dial establishes a TCP connection via Tor's SOCKS5 proxy.
@@ -270,6 +310,12 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if c.metrics != nil {
 		c.metrics.recordRequest(latency, err)
 	}
+
+	// Record measurement for slow relay avoidance
+	if c.slowRelayAvoidance != nil {
+		c.slowRelayAvoidance.recordMeasurement(latency, err == nil)
+	}
+
 	if err != nil {
 		c.logger.Log("error", "http request failed", "method", req.Method, "url", req.URL.String(), "latency", latency, "error", err)
 		return nil, err
@@ -279,8 +325,15 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 }
 
 // Close closes the ControlClient and underlying HTTP transport resources.
+// If slow relay avoidance is enabled, the background monitor is also stopped.
 func (c *Client) Close() error {
 	c.logger.Log("debug", "closing client")
+
+	// Stop slow relay avoidance monitor if running
+	if c.slowRelayAvoidance != nil {
+		c.slowRelayAvoidance.stop()
+	}
+
 	var closeErr error
 	if c.control != nil {
 		closeErr = c.control.Close()

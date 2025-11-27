@@ -141,6 +141,64 @@ brew install tor
 
 Voir [README en anglais](../../README.md#quick-start) pour des exemples de code complets.
 
+## Évitement des Relais Lents
+
+Tornago inclut un système de suivi des performances automatique qui détecte et évite les relais Tor lents. Activez-le simplement avec une option et le client gère tout en interne.
+
+### Utilisation de Base (Recommandée)
+
+```go
+// Créer un client avec l'évitement des relais lents activé
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(),  // Activer avec les valeurs par défaut
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer client.Close()
+
+// Faire des requêtes normalement - tout est géré automatiquement
+resp, err := client.Do(req)
+
+// Optionnellement vérifier les statistiques de performance
+stats, ok := client.RelayPerformanceStats()
+if ok {
+    fmt.Printf("Suivis: %d, Bloqués: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+}
+```
+
+### Configuration des Seuils Personnalisés
+
+```go
+// Activer avec des paramètres personnalisés pour des exigences plus strictes
+client, err := tornago.NewClient(
+    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+    tornago.WithClientControlAddr(torProcess.ControlAddr()),
+    tornago.WithSlowRelayAvoidance(
+        tornago.SlowRelayMaxLatency(3*time.Second),   // Bloquer les relais plus lents que 3s
+        tornago.SlowRelayMinSuccessRate(0.9),         // Exiger 90% de taux de réussite
+        tornago.SlowRelayBlockDuration(1*time.Hour),  // Bloquer pendant 1 heure
+        tornago.SlowRelayMinSamples(5),               // Besoin de 5 échantillons avant jugement
+        tornago.SlowRelayMonitorInterval(15*time.Second), // Vérifier toutes les 15s
+    ),
+)
+```
+
+### Valeurs de Seuil par Défaut
+
+| Paramètre | Par défaut | Description |
+|-----------|---------|-------------|
+| MaxLatency | 5 secondes | Les relais plus lents sont considérés comme "lents" |
+| MinSuccessRate | 80% | Les relais avec un taux de réussite plus bas sont bloqués |
+| BlockDuration | 30 minutes | Durée de blocage des relais lents |
+| MinSamples | 3 | Mesures minimales nécessaires avant l'évaluation |
+| MonitorInterval | 30 secondes | Intervalle de vérification en arrière-plan pour la rotation des circuits |
+| AutoExclude | true | Mettre à jour automatiquement ExcludeNodes de Tor |
+
+Voir [`examples/slow_relay_avoidance`](../../examples/slow_relay_avoidance/main.go) pour un exemple complet fonctionnel.
+
 ## Plus d'Exemples
 
 Le répertoire `examples/` contient des exemples fonctionnels supplémentaires. Tous les exemples sont testés et prêts à exécuter.
