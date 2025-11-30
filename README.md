@@ -699,6 +699,7 @@ All examples are tested and ready to run.
 ## Tool using tornago
 
 - [nao1215/onionlint](https://github.com/nao1215/onionlint): Tor site anonymity linter
+- [nao1215/onionscan](https://github.com/nao1215/onionscan)：Investigating tool the Dark Web
 
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.
