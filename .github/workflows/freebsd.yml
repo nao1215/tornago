@@ -27,6 +27,10 @@ jobs:
           mem: 8192
           copyback: false
           prepare: |
+            # The VM image's reported OSVERSION can be ahead of the package
+            # repository's expectation; allow pkg to proceed instead of
+            # bailing out with "Unable to update repository FreeBSD".
+            export IGNORE_OSVERSION=yes
             # Force-refresh the repository catalogue and upgrade pre-installed
             # packages first so shared libraries (e.g. libpcre2) match the
             # versions the freshly installed tools are linked against.
