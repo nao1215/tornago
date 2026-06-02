@@ -19,10 +19,23 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
-          release: "14.1"
+          # 14.1 reached end-of-life and its package set became internally
+          # inconsistent (git linked against a newer libpcre2 than the image
+          # shipped, causing "version PCRE2_10.47 required by git not defined").
+          # Use the maintained 14.2 release instead.
+          release: "14.2"
           mem: 8192
           copyback: false
           prepare: |
+            # The VM image's reported OSVERSION can be ahead of the package
+            # repository's expectation; allow pkg to proceed instead of
+            # bailing out with "Unable to update repository FreeBSD".
+            export IGNORE_OSVERSION=yes
+            # Force-refresh the repository catalogue and upgrade pre-installed
+            # packages first so shared libraries (e.g. libpcre2) match the
+            # versions the freshly installed tools are linked against.
+            pkg update -f
+            pkg upgrade -y
             pkg install -y go tor gmake git
           run: |
             git config --global --add safe.directory /home/runner/work/tornago/tornago
