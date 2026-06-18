@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 30
     name: FreeBSD unit test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Test on FreeBSD
         uses: vmactions/freebsd-vm@v1
