@@ -35,9 +35,11 @@ type TestServer struct {
 	client *Client
 	// controlAuth stores credentials for ControlPort access.
 	controlAuth ControlAuth
+	// baseDir is the temporary directory owned by an internally launched Tor.
+	baseDir string
 }
 
-// StartTestServer launches a Tor daemon for tests using a project-local DataDirectory
+// StartTestServer launches a Tor daemon for tests using a temporary DataDirectory
 // and dedicated ports, skipping if tor is unavailable.
 func StartTestServer(t *testing.T) *TestServer {
 	t.Helper()
@@ -47,23 +49,31 @@ func StartTestServer(t *testing.T) *TestServer {
 		return startExternalTestServer(t, ctrl)
 	}
 
-	home := os.Getenv("HOME")
-	if home == "" {
-		t.Fatalf("tornago: HOME environment variable is not set")
+	// This directory backs a process shared across tests, so t.TempDir would
+	// remove it when the first test finishes.
+	baseDir, err := os.MkdirTemp("", "tornago-test-*") //nolint:usetesting
+	if err != nil {
+		t.Fatalf("tornago: failed to create temporary tor directory: %v", err)
 	}
+	var process *TorProcess
+	cleanupOnExit := true
+	defer func() {
+		if !cleanupOnExit {
+			return
+		}
+		if process != nil {
+			_ = process.Stop() //nolint:errcheck // Best-effort cleanup after a fatal error or skip.
+		}
+		_ = os.RemoveAll(baseDir) //nolint:errcheck // Best-effort cleanup after a fatal error or skip.
+	}()
 
-	baseDir := filepath.Join(home, ".cache", "tornago-test")
-	if err := os.MkdirAll(baseDir, 0o700); err != nil {
-		t.Fatalf("tornago: failed to create base tor directory: %v", err)
-	}
-
-	dataDir := filepath.Join(baseDir, fmt.Sprintf("test-%d", time.Now().UnixNano()))
+	dataDir := filepath.Join(baseDir, "data")
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("tornago: failed to create tor data directory: %v", err)
 	}
 
 	cookiePath := filepath.Join(dataDir, "control_auth_cookie")
-	torrcPath := filepath.Join(baseDir, fmt.Sprintf("torrc-%d", time.Now().UnixNano()))
+	torrcPath := filepath.Join(baseDir, "torrc")
 	torrc := fmt.Sprintf(`
 SocksPort %s
 ControlPort %s
@@ -89,7 +99,7 @@ Log notice stdout
 		t.Fatalf("tornago: failed to build launch config: %v", err)
 	}
 
-	process, err := StartTorDaemon(launchCfg)
+	process, err = StartTorDaemon(launchCfg)
 	if err != nil {
 		var te *TornagoError
 		if errors.As(err, &te) && te.Kind == ErrTorBinaryNotFound {
@@ -118,17 +128,11 @@ Log notice stdout
 		WithServerControlAddr(process.ControlAddr()),
 	)
 	if err != nil {
-		if stopErr := process.Stop(); stopErr != nil {
-			t.Logf("tornago: failed to stop tor after server config error: %v", stopErr)
-		}
 		t.Fatalf("tornago: failed to build server config: %v", err)
 	}
 
 	server, err := NewServer(serverCfg)
 	if err != nil {
-		if stopErr := process.Stop(); stopErr != nil {
-			t.Logf("tornago: failed to stop tor after server init error: %v", stopErr)
-		}
 		t.Fatalf("tornago: failed to build server: %v", err)
 	}
 
@@ -139,11 +143,13 @@ Log notice stdout
 		t.SkipNow()
 	}
 
+	cleanupOnExit = false
 	return &TestServer{
 		Process:     process,
 		Server:      server,
 		t:           t,
 		controlAuth: controlAuth,
+		baseDir:     baseDir,
 	}
 }
 
@@ -152,7 +158,8 @@ Log notice stdout
 func waitForCookieFile(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		info, err := os.Stat(path)
+		// Test callers intentionally provide the cookie path being exercised.
+		info, err := os.Stat(filepath.Clean(path))
 		if err == nil {
 			if info.Size() > 0 {
 				return nil
@@ -208,6 +215,10 @@ func (ts *TestServer) Close() {
 	if ts.Process != nil {
 		_ = ts.Process.Stop() //nolint:errcheck // Silently ignore errors during cleanup
 		ts.Process = nil
+	}
+	if ts.baseDir != "" {
+		_ = os.RemoveAll(ts.baseDir) //nolint:errcheck // Best-effort test cleanup.
+		ts.baseDir = ""
 	}
 }
 

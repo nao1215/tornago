@@ -57,17 +57,22 @@ func main() {
 
 	// Make multiple requests to demonstrate rate limiting
 	fmt.Println("Making 10 requests (rate limited to 2 req/s)...")
+	const (
+		exampleComURL = "https://example.com"
+		exampleOrgURL = "https://example.org"
+		exampleNetURL = "https://example.net"
+	)
 	urls := []string{
-		"https://example.com",
-		"https://example.org",
-		"https://example.net",
-		"https://example.com",
-		"https://example.org",
-		"https://example.net",
-		"https://example.com",
-		"https://example.org",
-		"https://example.net",
-		"https://example.com",
+		exampleComURL,
+		exampleOrgURL,
+		exampleNetURL,
+		exampleComURL,
+		exampleOrgURL,
+		exampleNetURL,
+		exampleComURL,
+		exampleOrgURL,
+		exampleNetURL,
+		exampleComURL,
 	}
 
 	start := time.Now()

@@ -165,15 +165,15 @@ func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 		return nil, newError(ErrInvalidConfig, opStartTorDaemon, "invalid ControlAddr", err)
 	}
 
-	cmdArgs := make([]string, 0)
+	extraArgs := cfg.ExtraArgs()
+	cmdArgs := make([]string, 0, 14+len(extraArgs))
 	if torConfig := cfg.TorConfigFile(); torConfig != "" {
 		// When using torrc file, only pass -f and extra args
 		cmdArgs = append(cmdArgs, "-f", torConfig)
-		cmdArgs = append(cmdArgs, cfg.ExtraArgs()...)
 	} else {
 		// When not using torrc, pass all settings as command-line args
 		cookiePath := filepath.Join(dataDir, "control_auth_cookie")
-		args := []string{
+		cmdArgs = append(cmdArgs,
 			"--SocksPort", socksAddr,
 			"--ControlPort", controlAddr,
 			"--CookieAuthentication", "1",
@@ -181,10 +181,9 @@ func StartTorDaemon(cfg TorLaunchConfig) (_ *TorProcess, err error) {
 			"--RunAsDaemon", "0",
 			"--DataDirectory", dataDir,
 			"--Log", "notice stdout",
-		}
-		args = append(args, cfg.ExtraArgs()...)
-		cmdArgs = append(cmdArgs, args...)
+		)
 	}
+	cmdArgs = append(cmdArgs, extraArgs...)
 
 	// #nosec G204 -- arguments are fully controlled by validated TorLaunchConfig.
 	// NOTE: We use exec.Command (not CommandContext) because the tor process should

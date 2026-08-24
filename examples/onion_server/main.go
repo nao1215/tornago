@@ -38,6 +38,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"log"
 	"net"
 	"net/http"
@@ -81,7 +82,10 @@ func main() {
 	localAddr := "127.0.0.1:8080"
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		html := `<!DOCTYPE html>
+		remoteAddr := html.EscapeString(r.RemoteAddr)
+		requestPath := html.EscapeString(r.URL.Path)
+		userAgent := html.EscapeString(r.UserAgent())
+		page := `<!DOCTYPE html>
 <html>
 <head>
     <title>Tornago Hidden Service</title>
@@ -123,9 +127,9 @@ func main() {
 
         <div class="info">
             <h3>Connection Info:</h3>
-            <p><strong>Your IP:</strong> <code>` + r.RemoteAddr + `</code></p>
-            <p><strong>Request Path:</strong> <code>` + r.URL.Path + `</code></p>
-            <p><strong>User Agent:</strong> <code>` + r.UserAgent() + `</code></p>
+            <p><strong>Your IP:</strong> <code>` + remoteAddr + `</code></p>
+            <p><strong>Request Path:</strong> <code>` + requestPath + `</code></p>
+            <p><strong>User Agent:</strong> <code>` + userAgent + `</code></p>
         </div>
 
         <h3>About Tornago:</h3>
@@ -143,7 +147,7 @@ func main() {
 </body>
 </html>`
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, html)
+		fmt.Fprint(w, page)
 	})
 
 	server := &http.Server{

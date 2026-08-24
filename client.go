@@ -558,7 +558,10 @@ func buildConnectRequest(host string, port uint16) ([]byte, error) {
 		if len(host) == 0 || len(host) > 255 {
 			return nil, newError(ErrSocksDialFailed, opClient, "invalid hostname length", nil)
 		}
-		req = append(req, 0x03, byte(len(host)))
+		// SOCKS5 represents domain length in one octet; the range check above
+		// guarantees this conversion cannot truncate.
+		hostLen := byte(len(host)) //nolint:gosec
+		req = append(req, 0x03, hostLen)
 		req = append(req, []byte(host)...)
 	}
 	portBytes := make([]byte, 2)

@@ -292,7 +292,8 @@ func TestConsumeConnectReply(t *testing.T) {
 		// Send valid SOCKS5 reply in goroutine
 		go func() {
 			// Version, status (success), reserved, address type (IPv4)
-			reply := []byte{0x05, 0x00, 0x00, 0x01}
+			reply := make([]byte, 0, 10)
+			reply = append(reply, 0x05, 0x00, 0x00, 0x01)
 			// IPv4 address (4 bytes) + port (2 bytes)
 			reply = append(reply, []byte{0, 0, 0, 0, 0, 0}...)
 			_, _ = server.Write(reply) //nolint:errcheck
@@ -311,7 +312,8 @@ func TestConsumeConnectReply(t *testing.T) {
 
 		go func() {
 			// Version, status, reserved, address type (domain)
-			reply := []byte{0x05, 0x00, 0x00, 0x03}
+			reply := make([]byte, 0, 18)
+			reply = append(reply, 0x05, 0x00, 0x00, 0x03)
 			// Domain length + domain name + port
 			reply = append(reply, byte(11)) // length of "example.com"
 			reply = append(reply, []byte("example.com")...)
