@@ -79,8 +79,6 @@ Log notice stdout
 		t.Fatalf("tornago: failed to write torrc: %v", err)
 	}
 
-	bootstrapped := make(chan struct{}, 1)
-
 	launchCfg, err := NewTorLaunchConfig(
 		WithTorDataDir(dataDir),
 		WithTorSocksAddr(testTorSocksAddr),
@@ -139,14 +137,6 @@ Log notice stdout
 	if err := waitForTorBootstrap(process.ControlAddr(), controlAuth, 5*time.Minute); err != nil {
 		t.Logf("tornago: skipping integration test because tor failed to bootstrap: %v", err)
 		t.SkipNow()
-	}
-
-	// Also wait for the log-based bootstrap signal
-	select {
-	case <-bootstrapped:
-		t.Log("tornago: bootstrap 100% confirmed via logs")
-	case <-time.After(5 * time.Second):
-		// This is OK - we already verified via control port
 	}
 
 	return &TestServer{

@@ -90,8 +90,9 @@ func TestClientIntegration(t *testing.T) {
 	})
 
 	t.Run("ListenWithConfig", func(t *testing.T) {
+		localPort := availableLocalPort(t)
 		hsCfg, err := NewHiddenServiceConfig(
-			WithHiddenServicePort(443, 8443),
+			WithHiddenServicePort(443, localPort),
 		)
 		if err != nil {
 			t.Fatalf("NewHiddenServiceConfig: %v", err)
@@ -100,7 +101,7 @@ func TestClientIntegration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		listener, err := client.ListenWithConfig(ctx, hsCfg, 8443)
+		listener, err := client.ListenWithConfig(ctx, hsCfg, localPort)
 		if err != nil {
 			t.Fatalf("ListenWithConfig: %v", err)
 		}
@@ -380,6 +381,28 @@ func TestClientIntegration(t *testing.T) {
 			t.Errorf("MinSuccessRate = %v, want %v", threshold.MinSuccessRate(), 0.5)
 		}
 	})
+}
+
+// availableLocalPort asks the OS for an ephemeral port instead of relying on a
+// fixed port that may already be occupied on a shared CI runner.
+func availableLocalPort(t *testing.T) int {
+	t.Helper()
+
+	lc := &net.ListenConfig{}
+	listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate local port: %v", err)
+	}
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = listener.Close()
+		t.Fatalf("unexpected listener address type: %T", listener.Addr())
+	}
+	port := addr.Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("failed to release local port %d: %v", port, err)
+	}
+	return port
 }
 
 func extractPort(t *testing.T, rawURL string) int {

@@ -304,10 +304,24 @@ func terminateCmd(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	if killErr := cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-		return killErr
+	killed := false
+	if killErr := cmd.Process.Kill(); killErr != nil {
+		if !errors.Is(killErr, os.ErrProcessDone) {
+			return killErr
+		}
+	} else {
+		killed = true
 	}
-	if waitErr := cmd.Wait(); waitErr != nil && !errors.Is(waitErr, os.ErrProcessDone) {
+	if waitErr := cmd.Wait(); waitErr != nil {
+		if errors.Is(waitErr, os.ErrProcessDone) {
+			return nil
+		}
+		// Wait reports an ExitError after a process we intentionally killed.
+		// The successful Kill is the requested outcome, not a stop failure.
+		var exitErr *exec.ExitError
+		if killed && errors.As(waitErr, &exitErr) {
+			return nil
+		}
 		return waitErr
 	}
 	return nil
