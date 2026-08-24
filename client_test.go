@@ -282,6 +282,7 @@ func TestWriteAll(t *testing.T) {
 	})
 }
 
+// TestConsumeConnectReply verifies SOCKS5 replies for supported address types and errors.
 func TestConsumeConnectReply(t *testing.T) {
 	t.Run("should successfully consume valid SOCKS5 reply", func(t *testing.T) {
 		// Create a pipe

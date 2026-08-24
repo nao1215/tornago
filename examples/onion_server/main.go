@@ -50,6 +50,7 @@ import (
 	"github.com/nao1215/tornago"
 )
 
+// main launches a local HTTP server and exposes it as a Tor hidden service.
 func main() {
 	// Step 1: Launch Tor daemon
 	// NOTE: Same as client examples. The Tor instance handles both

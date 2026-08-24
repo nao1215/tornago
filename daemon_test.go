@@ -187,6 +187,7 @@ func TestTeeWriter(t *testing.T) {
 	})
 }
 
+// TestTerminateCmdTreatsKilledProcessAsSuccess covers intentional process termination.
 func TestTerminateCmdTreatsKilledProcessAsSuccess(t *testing.T) {
 	const helperEnv = "TORNAGO_TEST_TERMINATE_HELPER"
 	if os.Getenv(helperEnv) == "1" {

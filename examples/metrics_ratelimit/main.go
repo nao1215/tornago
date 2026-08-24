@@ -12,6 +12,7 @@ import (
 	"github.com/nao1215/tornago"
 )
 
+// main demonstrates Tor request metrics and rate limiting.
 func main() {
 	// Launch Tor daemon
 	fmt.Println("Starting Tor daemon...")

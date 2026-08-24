@@ -73,7 +73,9 @@ func WithHiddenServicePrivateKey(privateKey string) HiddenServiceOption {
 	}
 }
 
-// WithHiddenServicePort maps a virtual port to a local target port.
+// WithHiddenServicePort maps a virtual port to a local target port. A target
+// port of 0 requests atomic ephemeral-port allocation when the config is passed
+// to Client.ListenWithConfig with localPort set to 0.
 func WithHiddenServicePort(virtualPort, targetPort int) HiddenServiceOption {
 	return func(cfg *HiddenServiceConfig) {
 		if cfg.targetPort == nil {
@@ -244,6 +246,12 @@ func (c *ControlClient) CreateHiddenService(ctx context.Context, cfg HiddenServi
 	if err != nil {
 		return nil, err
 	}
+	for _, targetPort := range cfg.Ports() {
+		if targetPort == 0 {
+			return nil, newError(ErrInvalidConfig, opControlClient,
+				"target port 0 requires Client.ListenWithConfig with localPort 0", nil)
+		}
+	}
 
 	cmd := buildAddOnionCommand(cfg)
 
@@ -311,7 +319,7 @@ func validateHiddenServiceConfig(cfg HiddenServiceConfig) error {
 		if virt <= 0 || virt > 65535 {
 			return newError(ErrInvalidConfig, "validateHiddenServiceConfig", fmt.Sprintf("virtual port %d out of range", virt), nil)
 		}
-		if tgt <= 0 || tgt > 65535 {
+		if tgt < 0 || tgt > 65535 {
 			return newError(ErrInvalidConfig, "validateHiddenServiceConfig", fmt.Sprintf("target port %d out of range", tgt), nil)
 		}
 	}

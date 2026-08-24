@@ -644,7 +644,8 @@ func (c *Client) Listen(ctx context.Context, virtualPort, localPort int) (*TorLi
 // This allows for advanced configurations like persistent keys or client authorization.
 //
 // The HiddenServiceConfig must have exactly one port mapping, and its target port
-// must match the localPort parameter.
+// must match the localPort parameter. Set both target port and localPort to 0 to
+// atomically allocate an ephemeral local port.
 //
 // Example:
 //
@@ -677,6 +678,15 @@ func (c *Client) ListenWithConfig(ctx context.Context, hsCfg HiddenServiceConfig
 	underlying, err := lc.Listen(ctx, "tcp", localAddr)
 	if err != nil {
 		return nil, newError(ErrIO, opClient, "failed to create local listener", err)
+	}
+	if localPort == 0 {
+		tcpAddr, ok := underlying.Addr().(*net.TCPAddr)
+		if !ok {
+			_ = underlying.Close()
+			return nil, newError(ErrIO, opClient, "unexpected listener address type", nil)
+		}
+		ports[virtualPort] = tcpAddr.Port
+		hsCfg.targetPort = ports
 	}
 
 	// Create the hidden service.
