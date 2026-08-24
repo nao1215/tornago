@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// TestNewHiddenServiceConfig verifies port, key, and authentication configuration validation.
 func TestNewHiddenServiceConfig(t *testing.T) {
 	t.Run("should reject configuration with no ports specified", func(t *testing.T) {
 		_, err := NewHiddenServiceConfig()
@@ -52,6 +53,18 @@ func TestNewHiddenServiceConfig(t *testing.T) {
 		)
 		if err == nil {
 			t.Fatalf("expected error when target port exceeds 65535")
+		}
+	})
+
+	t.Run("should accept zero target port for dynamic listener allocation", func(t *testing.T) {
+		cfg, err := NewHiddenServiceConfig(
+			WithHiddenServicePort(80, 0),
+		)
+		if err != nil {
+			t.Fatalf("expected dynamic target port to be accepted: %v", err)
+		}
+		if got := cfg.Ports()[80]; got != 0 {
+			t.Fatalf("expected dynamic target port 0, got %d", got)
 		}
 	})
 

@@ -660,7 +660,9 @@ func WaitForControlPort(controlAddr string, timeout time.Duration) error {
 			continue
 		}
 		// 2) Verify cookie file exists and is non-empty
-		if stat, err := os.Stat(cookiePath); err == nil && stat.Size() > 0 {
+		// The path is reported by the explicitly configured Tor control port and
+		// may legitimately live outside this process's working directory.
+		if stat, err := os.Stat(filepath.Clean(cookiePath)); err == nil && stat.Size() > 0 {
 			// 3) Make one final verification that PROTOCOLINFO still works
 			// (in case cookie was created but Tor is still initializing)
 			if _, verifyErr := tryGetCookiePath(controlAddr); verifyErr == nil {
