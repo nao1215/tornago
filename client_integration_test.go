@@ -23,6 +23,7 @@ func requireIntegration(t *testing.T) {
 	}
 }
 
+// TestClientIntegration exercises client, listener, control, and onion-service flows through Tor.
 func TestClientIntegration(t *testing.T) {
 	requireIntegration(t)
 
@@ -91,7 +92,7 @@ func TestClientIntegration(t *testing.T) {
 
 	t.Run("ListenWithConfig", func(t *testing.T) {
 		hsCfg, err := NewHiddenServiceConfig(
-			WithHiddenServicePort(443, 8443),
+			WithHiddenServicePort(443, 0),
 		)
 		if err != nil {
 			t.Fatalf("NewHiddenServiceConfig: %v", err)
@@ -100,7 +101,7 @@ func TestClientIntegration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		listener, err := client.ListenWithConfig(ctx, hsCfg, 8443)
+		listener, err := client.ListenWithConfig(ctx, hsCfg, 0)
 		if err != nil {
 			t.Fatalf("ListenWithConfig: %v", err)
 		}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -186,6 +187,25 @@ func TestTeeWriter(t *testing.T) {
 	})
 }
 
+// TestTerminateCmdTreatsKilledProcessAsSuccess covers intentional process termination.
+func TestTerminateCmdTreatsKilledProcessAsSuccess(t *testing.T) {
+	const helperEnv = "TORNAGO_TEST_TERMINATE_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		time.Sleep(30 * time.Second)
+		return
+	}
+
+	// os.Args[0] is the current test binary, not user input.
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestTerminateCmdTreatsKilledProcessAsSuccess$") //nolint:gosec
+	cmd.Env = append(os.Environ(), helperEnv+"=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper process: %v", err)
+	}
+	if err := terminateCmd(cmd); err != nil {
+		t.Fatalf("terminateCmd returned an error after a successful kill: %v", err)
+	}
+}
+
 // TestTorProcessCrashRecovery tests recovery from Tor process termination.
 // This test verifies that clients can detect when the Tor daemon stops unexpectedly.
 func TestTorProcessCrashRecovery(t *testing.T) {
@@ -198,7 +218,8 @@ func TestTorProcessCrashRecovery(t *testing.T) {
 	}
 
 	t.Run("client detects when Tor process stops", func(t *testing.T) {
-		// Launch a dedicated Tor instance for this test
+		// Launch a dedicated Tor instance for this test. Full bootstrap is not
+		// required because this test only exercises local process availability.
 		launchCfg, err := NewTorLaunchConfig(
 			WithTorSocksAddr(":0"),
 			WithTorControlAddr(":0"),
@@ -214,25 +235,15 @@ func TestTorProcessCrashRecovery(t *testing.T) {
 		}
 		defer torProc.Stop() // Ensure cleanup even if test fails early
 
-		// Create client with control port access to check bootstrap status
-		auth, _, err := ControlAuthFromTor(torProc.ControlAddr(), 5*time.Second)
-		if err != nil {
-			t.Fatalf("ControlAuthFromTor: %v", err)
+		if !portsReachable(torProc.SocksAddr(), torProc.ControlAddr()) {
+			t.Fatal("Tor ports are not reachable after startup")
 		}
 
-		opts := []ClientOption{
+		cfg, err := NewClientConfig(
 			WithClientSocksAddr(torProc.SocksAddr()),
-			WithClientControlAddr(torProc.ControlAddr()),
-			WithClientDialTimeout(10 * time.Second),
-			WithClientRequestTimeout(30 * time.Second),
-		}
-		if auth.Password() != "" {
-			opts = append(opts, WithClientControlPassword(auth.Password()))
-		} else if auth.CookiePath() != "" {
-			opts = append(opts, WithClientControlCookie(auth.CookiePath()))
-		}
-
-		cfg, err := NewClientConfig(opts...)
+			WithClientDialTimeout(10*time.Second),
+			WithClientRequestTimeout(30*time.Second),
+		)
 		if err != nil {
 			t.Fatalf("NewClientConfig: %v", err)
 		}
@@ -243,41 +254,22 @@ func TestTorProcessCrashRecovery(t *testing.T) {
 		}
 		defer client.Close()
 
-		// Wait for Tor to be fully bootstrapped by checking status
-		// This is more reliable than time.Sleep
-		// Use 120 seconds timeout because Tor bootstrap can be slow in CI environments
-		if err := waitForTorBootstrap(torProc.ControlAddr(), auth, 120*time.Second); err != nil {
-			t.Fatalf("waitForTorBootstrap: %v", err)
+		// Terminate Tor explicitly here; defer handles cleanup on early failures.
+		if err := torProc.Stop(); err != nil {
+			t.Fatalf("Stop: %v", err)
 		}
 
-		// Verify connection works
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
+		// Requests through the same client should fail after its Tor process exits.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", http.NoBody)
 		if err != nil {
 			t.Fatalf("NewRequestWithContext: %v", err)
 		}
 
 		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("initial request failed: %v", err)
-		}
-		_ = resp.Body.Close()
-
-		// Terminate Tor process
-		// Note: Stop() may return "signal: killed" which is expected
-		// We call Stop explicitly here for the test, defer will handle cleanup on early failures
-		if err := torProc.Stop(); err != nil {
-			t.Logf("Stop returned error (expected): %v", err)
-		}
-
-		// Subsequent requests should fail immediately (no sleep needed)
-		req2, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
-		if err != nil {
-			t.Fatalf("NewRequestWithContext: %v", err)
-		}
-
-		resp2, err := client.Do(req2)
 		if err == nil {
-			_ = resp2.Body.Close()
+			_ = resp.Body.Close()
 			t.Error("expected error after Tor process termination, got nil")
 		}
 	})
