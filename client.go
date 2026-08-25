@@ -468,6 +468,49 @@ func (d *socks5Dialer) DialContext(ctx context.Context, network, address string)
 		return nil, newError(ErrSocksDialFailed, opClient, "unsupported network "+network, nil)
 	}
 
+	conn, err := d.dialProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			_ = conn.Close()
+			return nil, newError(ErrSocksDialFailed, opClient, "failed to set SOCKS handshake deadline", err)
+		}
+	}
+
+	if err := d.handshake(conn, address); err != nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+		return nil, err
+	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return nil, newError(ErrSocksDialFailed, opClient, "failed to clear SOCKS handshake deadline", err)
+	}
+	return conn, nil
+}
+
+// probe verifies that the SOCKS5 proxy accepts an unauthenticated greeting
+// without depending on any external destination.
+func (d *socks5Dialer) probe(ctx context.Context) error {
+	conn, err := d.dialProxy(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return newError(ErrSocksDialFailed, opClient, "failed to set SOCKS probe deadline", err)
+		}
+	}
+	return d.negotiate(conn)
+}
+
+// dialProxy opens a TCP connection to the configured SOCKS5 proxy.
+func (d *socks5Dialer) dialProxy(ctx context.Context) (net.Conn, error) {
 	dialer := &net.Dialer{}
 	if d.timeout > 0 {
 		dialer.Timeout = d.timeout
@@ -477,27 +520,13 @@ func (d *socks5Dialer) DialContext(ctx context.Context, network, address string)
 	if err != nil {
 		return nil, newError(ErrSocksDialFailed, opClient, "failed to connect to SOCKS proxy", err)
 	}
-
-	if err := d.handshake(conn, address); err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-		return nil, err
-	}
 	return conn, nil
 }
 
 // handshake performs the SOCKS5 CONNECT handshake to dest over conn.
 func (d *socks5Dialer) handshake(conn net.Conn, dest string) error {
-	if err := writeAll(conn, []byte{0x05, 0x01, 0x00}); err != nil {
-		return newError(ErrSocksDialFailed, opClient, "failed to send greeting", err)
-	}
-	reply := make([]byte, 2)
-	if _, err := io.ReadFull(conn, reply); err != nil {
-		return newError(ErrSocksDialFailed, opClient, "failed to read greeting", err)
-	}
-	if reply[1] != 0x00 {
-		return newError(ErrSocksDialFailed, opClient, "SOCKS authentication not accepted", nil)
+	if err := d.negotiate(conn); err != nil {
+		return err
 	}
 
 	host, portStr, err := net.SplitHostPort(dest)
@@ -519,6 +548,25 @@ func (d *socks5Dialer) handshake(conn net.Conn, dest string) error {
 
 	if err := consumeConnectReply(conn); err != nil {
 		return err
+	}
+	return nil
+}
+
+// negotiate performs the SOCKS5 method negotiation without connecting to a
+// destination.
+func (d *socks5Dialer) negotiate(conn net.Conn) error {
+	if err := writeAll(conn, []byte{0x05, 0x01, 0x00}); err != nil {
+		return newError(ErrSocksDialFailed, opClient, "failed to send greeting", err)
+	}
+	reply := make([]byte, 2)
+	if _, err := io.ReadFull(conn, reply); err != nil {
+		return newError(ErrSocksDialFailed, opClient, "failed to read greeting", err)
+	}
+	if reply[0] != 0x05 {
+		return newError(ErrSocksDialFailed, opClient, "invalid SOCKS version in greeting", nil)
+	}
+	if reply[1] != 0x00 {
+		return newError(ErrSocksDialFailed, opClient, "SOCKS authentication not accepted", nil)
 	}
 	return nil
 }
