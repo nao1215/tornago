@@ -45,11 +45,27 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          choco install tor -y
-          Add-Content -Path $env:GITHUB_PATH -Value "C:\ProgramData\chocolatey\lib\tor\tools\Tor"
+          $torDir = "C:\ProgramData\chocolatey\lib\tor\tools\Tor"
+          $torBinary = Join-Path $torDir "tor.exe"
+          $maxAttempts = 3
+
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            choco install tor -y --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $torBinary)) {
+              break
+            }
+
+            if ($attempt -eq $maxAttempts) {
+              throw "Failed to install Tor after $maxAttempts attempts"
+            }
+
+            Start-Sleep -Seconds (15 * $attempt)
+          }
+
+          Add-Content -Path $env:GITHUB_PATH -Value $torDir
+          & $torBinary --version
 
       - name: Run integration tests with coverage
         run: make integration-test
         env:
           TORNAGO_INTEGRATION: "1"
-
