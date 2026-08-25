@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-25
+
+### Added
+- Added OnionScan to the README's related tools.
+
+### Changed
+- Updated GitHub Actions dependencies for checkout, Go setup, cross-platform jobs,
+  coverage reporting, and GitHub Releases.
+- Improved CI resilience for Windows Tor installation and FreeBSD package setup.
+
+### Fixed
+- Made SOCKS health checks deterministic by probing the local proxy and applying
+  context deadlines to handshake I/O.
+- Stabilized Tor integration tests against transient network errors, slow bootstrap,
+  process cleanup races, and local port conflicts.
+- Allocated hidden service ports atomically to avoid close-and-rebind races.
+- Escaped request-derived values in the onion server example and resolved lint and
+  security findings across the codebase.
+
 ## [0.4.0] - 2025-11-27
 
 ### Added
@@ -127,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed initial Windows support (re-added in later version)
 
-[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/nao1215/tornago/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/nao1215/tornago/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/nao1215/tornago/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/nao1215/tornago/compare/v0.2.0...v0.3.0
