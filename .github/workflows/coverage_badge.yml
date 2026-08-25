@@ -39,4 +39,4 @@ jobs:
       - name: Copy coverage file for octocov
         run: cp coverage-integration.out coverage.out
 
-      - uses: k1LoW/octocov-action@v1
+      - uses: k1LoW/octocov-action@v1.5.1
