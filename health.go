@@ -130,13 +130,11 @@ func (c *Client) checkSOCKS(ctx context.Context) string {
 	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Attempt to dial a dummy address through SOCKS
-	// We don't need to actually connect, just verify SOCKS proxy responds
-	conn, err := c.socksDialer.DialContext(checkCtx, "tcp", "check.torproject.org:80")
-	if err != nil {
-		return fmt.Sprintf("dial failed: %v", err)
+	// Negotiate with the local SOCKS proxy without depending on an external
+	// destination or the current state of the Tor network.
+	if err := c.socksDialer.probe(checkCtx); err != nil {
+		return fmt.Sprintf("probe failed: %v", err)
 	}
-	_ = conn.Close()
 	return ""
 }
 

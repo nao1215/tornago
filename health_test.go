@@ -236,6 +236,33 @@ func TestClientCheckWithInvalidSOCKS(t *testing.T) {
 	}
 }
 
+func TestClientCheckWithReachableSOCKS(t *testing.T) {
+	t.Parallel()
+
+	mockSOCKS := createMockSOCKS5Server(t)
+	defer mockSOCKS.Close()
+
+	cfg, err := NewClientConfig(
+		WithClientSocksAddr(mockSOCKS.Addr().String()),
+		WithClientDialTimeout(time.Second),
+	)
+	if err != nil {
+		t.Fatalf("NewClientConfig() error = %v", err)
+	}
+
+	client, err := NewClient(cfg)
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer client.Close()
+
+	health := client.Check(context.Background())
+	if !health.IsHealthy() {
+		t.Errorf("Check() status = %v, want %v (message: %s)",
+			health.Status(), HealthStatusHealthy, health.Message())
+	}
+}
+
 func TestCheckTorDaemonWithNilProcess(t *testing.T) {
 	t.Parallel()
 
