@@ -17,8 +17,15 @@ jobs:
           - "ubuntu-latest"
           - "macos-latest"
           - "windows-latest"
+        # The floor go.mod declares and the newest release. The floor is 1.24
+        # because the tests use testing.T.Context, which 1.23 does not have;
+        # nothing in the tree needs anything newer, and this matrix is the only
+        # place that claim is checked. "stable" tracks each Go release without
+        # an edit, and is used rather than "1" because setup-go resolves "1"
+        # from its own manifest, which lags a fresh release.
         go:
-          - "1.25"
+          - "1.24"
+          - "stable"
       fail-fast: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
