@@ -116,7 +116,7 @@ graph LR
 
 ### Go
 
-- **Go Version**: 1.25 or later
+- **Go Version**: 1.24 or later
 
 ### Operating Systems (Tested in GitHub Actions)
 

@@ -13,7 +13,7 @@ Thank you for considering contributing to the tornago project! This document exp
 
 #### Installing Go
 
-tornago development requires Go 1.25 or later.
+tornago development requires Go 1.24 or later.
 
 **macOS (using Homebrew)**
 ```bash
