@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-12
+
 ### Changed
 
 - The supported Go floor is 1.24 instead of 1.25. Nothing in the tree needs a newer Go: 1.24 is where `testing.T.Context` stops existing, which is the only thing 1.23 cannot compile, so that is the real minimum and one more Go release can now use this library. The unit-test matrix runs that floor and the newest release.
@@ -155,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed initial Windows support (re-added in later version)
 
-[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/nao1215/tornago/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/nao1215/tornago/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/nao1215/tornago/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/nao1215/tornago/compare/v0.3.0...v0.3.1
