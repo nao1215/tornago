@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The supported Go floor is 1.24 instead of 1.25. Nothing in the tree needs a newer Go: 1.24 is where `testing.T.Context` stops existing, which is the only thing 1.23 cannot compile, so that is the real minimum and one more Go release can now use this library. The unit-test matrix runs that floor and the newest release.
+- The BSD virtual machines run `cross-platform-actions/action` v1.5.0.
+
+### Removed
+
+- The Go Report Card badge, in the English README and all six translations. The service is retired and its badge now answers `go report: retired`, which is a line of README saying nothing about this library.
 
 ## [0.4.1] - 2026-08-25
 
