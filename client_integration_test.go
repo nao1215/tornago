@@ -162,10 +162,13 @@ func TestClientIntegration(t *testing.T) {
 			t.Error("expected non-nil client auth slice")
 		}
 
-		// Hidden service connections can take time to propagate through the Tor network.
-		// Use shorter timeouts with more retries to fail faster on transient errors
-		// while still allowing enough total time for propagation.
-		const maxAttempts = 8
+		// Hidden service connections can take time to propagate through the Tor
+		// network. The budget below is bounded on purpose: five attempts spend at
+		// most about three and a half minutes, which leaves the rest of the suite
+		// inside the binary's timeout. The attempts this drops were never the ones
+		// that succeeded: when propagation is going to finish it finishes in the
+		// first two, and when it is not, eight attempts only make the run longer.
+		const maxAttempts = 5
 		const requestTimeout = 30 * time.Second
 		const baseBackoff = 5 * time.Second
 
@@ -185,19 +188,15 @@ func TestClientIntegration(t *testing.T) {
 			}
 			t.Logf("attempt %d/%d failed: %v", attempt, maxAttempts, lastErr)
 			if attempt < maxAttempts {
-				// Exponential backoff: 5s, 10s, 15s, 20s, 25s, 30s, 35s
-				backoff := baseBackoff * time.Duration(attempt)
-				if backoff > 35*time.Second {
-					backoff = 35 * time.Second
-				}
-				time.Sleep(backoff)
+				// Linear backoff: 5s, 10s, 15s, 20s
+				time.Sleep(baseBackoff * time.Duration(attempt))
 			}
 		}
 		if lastErr != nil {
 			// A fresh onion service answers only once its descriptor has reached the
 			// hash ring, and that is the Tor network's work rather than tornago's. On
-			// a CI runner it sometimes does not finish inside the seven minutes this
-			// loop allows, and every attempt then ends in the request context's own
+			// a CI runner it sometimes does not finish inside the budget this loop
+			// allows, and every attempt then ends in the request context's own
 			// deadline with nothing to read. Failing there turns main red over a
 			// property no change to this repository can hold. Every other error - a
 			// refused SOCKS connection, a protocol error, an address tornago composed
