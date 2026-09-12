@@ -29,8 +29,13 @@ test: ## Run fast unit tests (excludes integration tests)
 	env GOOS=$(GOOS) $(GO_TEST) -cover -coverpkg=$(GO_PKGROOT) -coverprofile=coverage.out -short $(GO_PKGROOT)
 	-$(GO_TOOL) cover -html=coverage.out -o coverage.html
 
+# go test's default timeout is 10 minutes, which was never a decision about this
+# suite: driving a real Tor daemon takes 5 to 8 minutes when the network is well,
+# and a slow descriptor or a slow bootstrap pushes it past the default and kills
+# the run mid-test with a goroutine dump. The workflows that call this bound the
+# job at 20 and 25 minutes, so the per-binary limit sits below the earlier of them.
 integration-test: ## Run all tests including slow integration tests with full coverage
-	$(INTEGRATION_ENV) TORNAGO_INTEGRATION=1 env GOOS=$(GOOS) $(GO_TEST) -cover -coverprofile=coverage-integration.out -count=1 $(shell $(GO) list ./... | grep -v /examples)
+	$(INTEGRATION_ENV) TORNAGO_INTEGRATION=1 env GOOS=$(GOOS) $(GO_TEST) -timeout 15m -cover -coverprofile=coverage-integration.out -count=1 $(shell $(GO) list ./... | grep -v /examples)
 	-$(GO_TOOL) cover -html=coverage-integration.out -o coverage-integration.html
 
 lint: ## Run golangci-lint
