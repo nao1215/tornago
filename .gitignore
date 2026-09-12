@@ -35,3 +35,5 @@ go.work.sum
 .tor-test
 .cache
 
+# Test output the coverage workflow tees to decide whether Tor reached the network
+integration.log
