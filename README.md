@@ -1,5 +1,6 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/nao1215/tornago.svg)](https://pkg.go.dev/github.com/nao1215/tornago)
 ![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/tornago/coverage.svg)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/tornago/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/tornago)
 
 [日本語](./doc/ja/README.md) | [Español](./doc/es/README.md) | [Français](./doc/fr/README.md) | [한국어](./doc/ko/README.md) | [Русский](./doc/ru/README.md) | [中文](./doc/zh-cn/README.md)
 
