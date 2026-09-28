@@ -76,12 +76,17 @@ jobs:
       # defended against on its own side, one ID each, with why, which test holds
       # the defense, and when to remove it. Leave it empty when there are none.
       # Any other reachable advisory fails the job and prints the text report.
+      # pipefail and the record-count check keep a failed or empty scan from
+      # reading as "nothing found": the default run shell does not set pipefail,
+      # so a jq error would otherwise be hidden behind sort.
       - name: Scan the module
         env:
           ACCEPTED: ""
           STDLIB: ${{ matrix.stdlib }}
         run: |
+          set -o pipefail
           govulncheck -format json ./... > "$RUNNER_TEMP/govulncheck.json"
+          jq -e -s 'length > 0' "$RUNNER_TEMP/govulncheck.json" > /dev/null
           called='select(.finding != null and (.finding.trace[0].function // "") != "")'
           if [ "$STDLIB" = "warn" ]; then
             jq -r "$called | select(.finding.trace[0].module == \"stdlib\") | .finding.osv" \
