@@ -447,7 +447,10 @@ func (c *ControlClient) authToken() (string, error) {
 		return quotedString(c.auth.Password()), nil
 	case c.auth.CookiePath() != "":
 		path := filepath.Clean(c.auth.CookiePath())
-		data, err := os.ReadFile(path)
+		// Tor writes the cookie wherever its CookieAuthFile says (often outside the
+		// working directory), and the caller names that file in ControlAuth, so the
+		// path is the caller's own configuration rather than untrusted input.
+		data, err := os.ReadFile(path) //nolint:gosec // G703: the path is the caller's own ControlAuth cookie path
 		if err != nil {
 			return "", newError(ErrIO, opControlClient, "failed to read control cookie", err)
 		}
@@ -672,7 +675,7 @@ func WaitForControlPort(controlAddr string, timeout time.Duration) error {
 		// 2) Verify cookie file exists and is non-empty
 		// The path is reported by the explicitly configured Tor control port and
 		// may legitimately live outside this process's working directory.
-		if stat, err := os.Stat(filepath.Clean(cookiePath)); err == nil && stat.Size() > 0 {
+		if stat, err := os.Stat(filepath.Clean(cookiePath)); err == nil && stat.Size() > 0 { //nolint:gosec // G703: the path comes from the control port the caller chose to trust, and is only stat-ed
 			// 3) Make one final verification that PROTOCOLINFO still works
 			// (in case cookie was created but Tor is still initializing)
 			if _, verifyErr := tryGetCookiePath(controlAddr); verifyErr == nil {

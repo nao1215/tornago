@@ -305,7 +305,7 @@ func startExternalTestServer(t *testing.T, controlAddr string) *TestServer {
 	case password != "":
 		controlAuth = ControlAuthFromPassword(password)
 	case cookiePath != "":
-		data, err := os.ReadFile(filepath.Clean(cookiePath))
+		data, err := os.ReadFile(filepath.Clean(cookiePath)) //nolint:gosec // G703: TORNAGO_TOR_COOKIE is set by the person running the integration tests
 		if err != nil {
 			t.Fatalf("tornago: failed to read control cookie %s: %v", cookiePath, err)
 		}
