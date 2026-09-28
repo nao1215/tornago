@@ -37,3 +37,17 @@ go.work.sum
 
 # Test output the coverage workflow tees to decide whether Tor reached the network
 integration.log
+
+# Binaries from `go build ./examples/<name>` run at the repository root
+/circuit_management
+/circuit_rotation
+/error_handling
+/existing_tor
+/metrics_ratelimit
+/observability
+/onion_client
+/onion_server
+/persistent_onion
+/security
+/simple_client
+/slow_relay_avoidance
