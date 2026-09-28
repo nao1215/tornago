@@ -465,6 +465,13 @@ func (c *ControlClient) execCommand(ctx context.Context, cmd string) ([]string, 
 		ctx = context.Background()
 	}
 
+	// A command is one line. A CR or LF inside it (from a key, a value, a
+	// password or an address the caller passed) would end the line early and
+	// make Tor run the remainder as a second command, so refuse it outright.
+	if strings.ContainsAny(cmd, "\r\n") {
+		return nil, newError(ErrInvalidConfig, opControlClient, "control command must not contain CR or LF", nil)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -615,15 +622,18 @@ func (c *ControlClient) readReply() ([]string, error) {
 			}
 			lines = append(lines, line[4:])
 			lines = append(lines, data...)
-		case code >= 500:
+		case code >= 400 && code < 600:
+			// 4xx (temporary) and 5xx (permanent) are negative replies.
 			return nil, newError(ErrControlRequestFail, opControlClient, line, fmt.Errorf("%s", line))
 		default:
-			// Ignore asynchronous events (e.g. 650) for now.
+			// Ignore asynchronous events (6xx, e.g. 650) for now.
 		}
 	}
 }
 
 // readDataBlock reads a 250+ data block until the terminating "." line.
+// Tor prefixes every data line that starts with "." with one more "."
+// (control-spec section 2.3), so that extra dot is removed here.
 func (c *ControlClient) readDataBlock() ([]string, error) {
 	var block []string
 	for {
@@ -635,7 +645,7 @@ func (c *ControlClient) readDataBlock() ([]string, error) {
 		if line == "." {
 			return block, nil
 		}
-		block = append(block, line)
+		block = append(block, strings.TrimPrefix(line, "."))
 	}
 }
 

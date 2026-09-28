@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A ControlPort command whose key, value, password or address contains CR or LF is now refused with `ErrInvalidConfig` before anything is sent. Until now the line break ended the command early and Tor ran the rest as a second command, so a value such as `"x\r\nSIGNAL SHUTDOWN\r\nx"` passed to `SetConf` shut Tor down.
+- A data reply line that begins with a dot now comes back without the extra dot Tor adds in front of it (control-spec section 2.3); `..hidden` used to be returned as is instead of `.hidden`.
+- An asynchronous event (a `650` line) arriving in the middle of a reply is skipped as the code comment always said, instead of failing the command, and a `4xx` reply now fails the command instead of being ignored until the timeout.
+
 ## [0.4.2] - 2026-09-12
 
 ### Changed
