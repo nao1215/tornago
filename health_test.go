@@ -310,7 +310,9 @@ func TestHealthFeatures(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				ctx := context.Background()
+				before := time.Now()
 				health := tt.client.Check(ctx)
+				elapsed := time.Since(before)
 
 				if health.Status() != tt.wantStatus {
 					t.Errorf("Check() status = %v, want %v (message: %s)",
@@ -321,8 +323,11 @@ func TestHealthFeatures(t *testing.T) {
 					t.Error("Check() timestamp is zero")
 				}
 
-				if health.Latency() <= 0 {
-					t.Error("Check() latency is not positive")
+				// A local check can finish within one tick of the clock, which
+				// on Windows makes the measured latency exactly zero, so the
+				// bound is [0, the time the call took] rather than > 0.
+				if health.Latency() < 0 || health.Latency() > elapsed {
+					t.Errorf("Check() latency = %v, want within [0, %v]", health.Latency(), elapsed)
 				}
 
 				// Test query methods
@@ -355,7 +360,9 @@ func TestHealthFeatures(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				ctx := context.Background()
+				before := time.Now()
 				health := CheckTorDaemon(ctx, tt.proc)
+				elapsed := time.Since(before)
 
 				if health.Status() != tt.wantStatus {
 					t.Errorf("CheckTorDaemon() status = %v, want %v (message: %s)",
@@ -366,8 +373,8 @@ func TestHealthFeatures(t *testing.T) {
 					t.Error("CheckTorDaemon() timestamp is zero")
 				}
 
-				if health.Latency() <= 0 {
-					t.Error("CheckTorDaemon() latency is not positive")
+				if health.Latency() < 0 || health.Latency() > elapsed {
+					t.Errorf("CheckTorDaemon() latency = %v, want within [0, %v]", health.Latency(), elapsed)
 				}
 
 				if tt.wantStatus == HealthStatusHealthy && !health.IsHealthy() {
