@@ -53,7 +53,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # govulncheck v1.8.0 needs Go 1.26 or newer to build, which is newer than
+      # govulncheck v1.9.0 needs Go 1.26 or newer to build, which is newer than
       # the matrix floor. Build it with stable Go first, then switch to the
       # matrix Go: govulncheck scans the standard library of the go command on
       # PATH, not the one it was built with.
@@ -65,7 +65,7 @@ jobs:
       # Pinned so a scanner release cannot change the verdict on its own. The
       # advisory database is intentionally not pinned.
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
