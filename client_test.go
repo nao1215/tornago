@@ -1235,14 +1235,23 @@ func TestNetworkDisconnectionBehavior(t *testing.T) {
 	})
 
 	t.Run("client recovers from temporary network issues with retry", func(t *testing.T) {
-		// Use real TestServer to verify retry logic
+		// The relay in front of Tor drops the first connection, so the
+		// request only succeeds if the client retries the failed dial.
+		relay := newFlakySOCKSRelay(t, ts.Server.SocksAddr(), 1)
+
 		auth := ts.ControlAuth(t)
 		opts := []ClientOption{
-			WithClientSocksAddr(ts.Server.SocksAddr()),
+			WithClientSocksAddr(relay.Addr()),
+			// One attempt through a real Tor circuit to a public site
+			// sometimes stalls past any fixed budget (macOS CI once spent
+			// the whole 30s awaiting headers). The default predicate does
+			// not retry an attempt that hit its own timeout, so retry every
+			// error here and let the request context bound the subtest.
 			WithClientRequestTimeout(30 * time.Second),
 			WithClientDialTimeout(10 * time.Second),
-			WithRetryAttempts(3),
+			WithRetryAttempts(4),
 			WithRetryDelay(100 * time.Millisecond),
+			WithRetryOnError(func(error) bool { return true }),
 		}
 		if auth.Password() != "" {
 			opts = append(opts, WithClientControlPassword(auth.Password()))
@@ -1262,8 +1271,7 @@ func TestNetworkDisconnectionBehavior(t *testing.T) {
 		}
 		defer client.Close()
 
-		// This should succeed with real Tor connection
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://check.torproject.org/api/ip", http.NoBody)
@@ -1280,7 +1288,68 @@ func TestNetworkDisconnectionBehavior(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
 		}
+		if got := relay.Accepted(); got < 2 {
+			t.Errorf("relay accepted %d connections, want at least 2 (the dropped one and the retry)", got)
+		}
 	})
+}
+
+// flakySOCKSRelay forwards TCP connections to a SOCKS proxy but closes the
+// first few without forwarding, imitating a network that drops for a moment.
+type flakySOCKSRelay struct {
+	listener net.Listener
+	accepted atomic.Int64
+}
+
+func newFlakySOCKSRelay(t *testing.T, target string, drop int64) *flakySOCKSRelay {
+	t.Helper()
+	lc := net.ListenConfig{}
+	listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create listener: %v", err)
+	}
+	relay := &flakySOCKSRelay{listener: listener}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if relay.accepted.Add(1) <= drop {
+				_ = conn.Close()
+				continue
+			}
+			go relayConn(conn, target)
+		}
+	}()
+	return relay
+}
+
+func (r *flakySOCKSRelay) Addr() string { return r.listener.Addr().String() }
+
+func (r *flakySOCKSRelay) Accepted() int64 { return r.accepted.Load() }
+
+func relayConn(clientConn net.Conn, target string) {
+	defer clientConn.Close()
+	dialer := net.Dialer{}
+	targetConn, err := dialer.DialContext(context.Background(), "tcp", target)
+	if err != nil {
+		return
+	}
+	defer targetConn.Close()
+
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(targetConn, clientConn) //nolint:errcheck
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(clientConn, targetConn) //nolint:errcheck
+		done <- struct{}{}
+	}()
+	<-done
 }
 
 // TestLongRunningStability tests for memory leaks and resource exhaustion.
