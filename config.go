@@ -394,6 +394,23 @@ func WithClientRequestTimeout(timeout time.Duration) ClientOption {
 }
 
 // WithRetryAttempts sets the maximum number of retries.
+//
+// The default retry predicate does not retry an attempt that ran out of
+// time: a request that exceeds WithClientRequestTimeout fails with an error
+// matching context.DeadlineExceeded, and the default treats that the same as
+// a caller's own deadline. On Tor a stalled circuit is the most common
+// transient failure, so to retry it pass a predicate with WithRetryOnError:
+//
+//	cfg, err := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
+//	    tornago.WithRetryAttempts(3),
+//	    tornago.WithRetryOnError(func(err error) bool {
+//	        return !errors.Is(err, context.Canceled)
+//	    }),
+//	)
+//
+// The context passed to the request still bounds every attempt together, so
+// give it a deadline that leaves room for the retries.
 func WithRetryAttempts(attempts uint) ClientOption {
 	return func(cfg *ClientConfig) {
 		cfg.retryAttempts = attempts
@@ -415,6 +432,11 @@ func WithRetryMaxDelay(delay time.Duration) ClientOption {
 }
 
 // WithRetryOnError registers a predicate to decide retry eligibility.
+//
+// Without it the client retries every error except those matching
+// context.Canceled or context.DeadlineExceeded, which means an attempt that
+// hit WithClientRequestTimeout is not retried. See WithRetryAttempts for a
+// predicate that retries such attempts.
 func WithRetryOnError(fn func(error) bool) ClientOption {
 	return func(cfg *ClientConfig) {
 		cfg.retryOnError = fn
