@@ -608,7 +608,7 @@ func buildConnectRequest(host string, port uint16) ([]byte, error) {
 		}
 		// SOCKS5 represents domain length in one octet; the range check above
 		// guarantees this conversion cannot truncate.
-		hostLen := byte(len(host)) //nolint:gosec
+		hostLen := byte(len(host)) // #nosec G115 -- reviewed
 		req = append(req, 0x03, hostLen)
 		req = append(req, []byte(host)...)
 	}

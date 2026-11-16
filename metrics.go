@@ -77,7 +77,7 @@ func (m *MetricsCollector) AverageLatency() time.Duration {
 		return 0
 	}
 	total := atomic.LoadInt64(&m.totalLatency)
-	return time.Duration(total) / time.Duration(count) //nolint:gosec // count is guaranteed > 0 and overflow is acceptable for metrics
+	return time.Duration(total) / time.Duration(count) // #nosec G115 -- count is guaranteed > 0 and overflow is acceptable for metrics
 }
 
 // MinLatency returns the minimum request latency observed.
