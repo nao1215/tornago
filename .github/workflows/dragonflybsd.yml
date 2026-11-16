@@ -27,8 +27,10 @@ jobs:
           mem: 8192
           copyback: false
           prepare: |
-            # git from the current package set needs the matching pcre2.
-            pkg install -y go tor gmake git pcre2
+            # The package set is newer than the VM image: git needs a newer pcre2
+            # and tor a newer libssl, so bring the base packages up first.
+            pkg upgrade -y
+            pkg install -y go tor gmake git
           run: |
             git config --global --add safe.directory /home/runner/work/tornago/tornago
             go version
