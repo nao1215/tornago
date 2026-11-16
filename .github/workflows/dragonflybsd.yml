@@ -27,7 +27,8 @@ jobs:
           mem: 8192
           copyback: false
           prepare: |
-            pkg install -y go tor gmake git
+            # git from the current package set needs the matching pcre2.
+            pkg install -y go tor gmake git pcre2
           run: |
             git config --global --add safe.directory /home/runner/work/tornago/tornago
             go version
