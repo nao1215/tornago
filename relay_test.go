@@ -2,7 +2,9 @@ package tornago
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -725,6 +727,72 @@ func TestGetBlockedFingerprintsWithExpired(t *testing.T) {
 	if tracker.IsBlocked(fp) {
 		t.Error("relay should not be blocked once the block expires")
 	}
+}
+
+func TestBlockedRelaysAgreesWithIsBlockedAtTheExpiry(t *testing.T) {
+	t.Parallel()
+
+	clock := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	tracker := NewRelayPerformanceTracker(
+		WithTrackerThreshold(NewRelayThreshold().
+			WithMaxLatency(100 * time.Millisecond).
+			WithMinSamples(1).
+			WithBlockDuration(time.Minute)),
+	)
+	tracker.now = func() time.Time { return clock }
+	fp := NewRelayFingerprint("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	tracker.RecordMeasurement(fp, 200*time.Millisecond, true)
+
+	for _, step := range []time.Duration{0, time.Minute - time.Nanosecond, time.Nanosecond, time.Nanosecond} {
+		clock = clock.Add(step)
+		blocked := tracker.IsBlocked(fp)
+		listed := len(tracker.BlockedRelays()) == 1
+		if blocked != listed {
+			t.Fatalf("at %v IsBlocked = %v but BlockedRelays lists it = %v", clock, blocked, listed)
+		}
+		if got := tracker.Stats().BlockedRelays; (got == 1) != blocked {
+			t.Fatalf("at %v Stats().BlockedRelays() = %d, IsBlocked = %v", clock, got, blocked)
+		}
+	}
+}
+
+func TestBlockedRelaysIsSafeForConcurrentUseAfterAnExpiry(t *testing.T) {
+	t.Parallel()
+
+	// BlockedRelays drops expired blocks. Run under -race, readers that drop
+	// them at the same time must not write the map together.
+	var mu sync.Mutex
+	clock := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	tracker := NewRelayPerformanceTracker(
+		WithTrackerThreshold(NewRelayThreshold().
+			WithMaxLatency(100 * time.Millisecond).
+			WithMinSamples(1).
+			WithBlockDuration(time.Minute)),
+	)
+	tracker.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
+	for i := range 32 {
+		tracker.RecordMeasurement(NewRelayFingerprint(fmt.Sprintf("%040X", i)), 200*time.Millisecond, true)
+	}
+	mu.Lock()
+	clock = clock.Add(time.Hour)
+	mu.Unlock()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if got := tracker.BlockedRelays(); len(got) != 0 {
+				t.Errorf("BlockedRelays() after every block expired = %v", got)
+			}
+			_ = tracker.Stats()
+		}()
+	}
+	wg.Wait()
 }
 
 func TestRelayPerformanceStatsAccessors(t *testing.T) {

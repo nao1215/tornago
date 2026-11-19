@@ -508,8 +508,9 @@ func (t *RelayPerformanceTracker) getBlockedFingerprints() []string {
 
 // BlockedRelays returns a list of currently blocked relay fingerprints.
 func (t *RelayPerformanceTracker) BlockedRelays() []RelayFingerprint {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// A write lock: dropping the expired blocks deletes from the map.
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	t.pruneExpiredBlocks()
 
@@ -520,12 +521,13 @@ func (t *RelayPerformanceTracker) BlockedRelays() []RelayFingerprint {
 	return relays
 }
 
-// pruneExpiredBlocks removes expired blocks.
-// Must be called with lock held.
+// pruneExpiredBlocks removes expired blocks. A block has expired once now is
+// no longer before expiresAt, the same instant IsBlocked starts to say false.
+// Must be called with the write lock held.
 func (t *RelayPerformanceTracker) pruneExpiredBlocks() {
 	now := t.now()
 	for fp, br := range t.blockedRelays {
-		if now.After(br.expiresAt) {
+		if !now.Before(br.expiresAt) {
 			delete(t.blockedRelays, fp)
 		}
 	}
@@ -579,8 +581,9 @@ type TrackerStats struct {
 
 // Stats returns current tracker statistics.
 func (t *RelayPerformanceTracker) Stats() TrackerStats {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// A write lock: dropping the expired blocks deletes from the map.
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	t.pruneExpiredBlocks()
 
