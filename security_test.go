@@ -107,7 +107,25 @@ func TestSecurityFeatures(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 
-			status, err := client.VerifyTorConnection(ctx)
+			// check.torproject.org is reached through whichever exit relay the
+			// circuit picked, and an exit can drop the request (an EOF on the
+			// OpenBSD job of run 44508746104). That says nothing about tornago,
+			// so a failed request is tried again on a new circuit, within the
+			// same 60 seconds.
+			var status TorConnectionStatus
+			var err error
+			for attempt := 1; attempt <= 3; attempt++ {
+				status, err = client.VerifyTorConnection(ctx)
+				if err == nil || ctx.Err() != nil {
+					break
+				}
+				t.Logf("attempt %d/3 failed: %v", attempt, err)
+				if ctrl := client.Control(); ctrl != nil {
+					if idErr := ctrl.NewIdentity(ctx); idErr != nil {
+						t.Logf("NewIdentity: %v", idErr)
+					}
+				}
+			}
 			if err != nil {
 				t.Fatalf("VerifyTorConnection() error = %v", err)
 			}
