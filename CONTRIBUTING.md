@@ -120,7 +120,7 @@ Tests are important. Please follow these guidelines:
 1. **Unit tests**: Aim for 80% or higher coverage (enforced by `.octocov.yml`)
 2. **Integration tests**: Mark with `if testing.Short() { t.Skip() }` and `TORNAGO_INTEGRATION=1` environment variable
 3. **Test readability**: Write clear test cases with descriptive names
-4. **Use TestServer**: For integration tests requiring a Tor instance
+4. **Use TestServer**: For integration tests requiring a Tor instance. It lives in `testserver_helper_test.go`, so it is available to the package's own tests and is not part of the public API
 
 Test example:
 ```go
@@ -129,8 +129,8 @@ func TestClient_Dial(t *testing.T) {
         t.Skip("skipping integration test")
     }
 
-    ts := tornago.StartTestServer(t)
-    defer ts.Stop()
+    ts := StartTestServer(t)
+    defer ts.Close()
 
     client := ts.Client(t)
 

@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -86,9 +87,10 @@ type SuccessRate struct {
 	value float64
 }
 
-// NewSuccessRate creates a new SuccessRate, clamping to [0.0, 1.0].
+// NewSuccessRate creates a new SuccessRate, clamping to [0.0, 1.0]. NaN is
+// not a rate and becomes 0.
 func NewSuccessRate(rate float64) SuccessRate {
-	if rate < 0 {
+	if math.IsNaN(rate) || rate < 0 {
 		rate = 0
 	}
 	if rate > 1 {
@@ -270,16 +272,22 @@ func (s *RelayStats) recalculate() {
 		return
 	}
 
-	var totalLatency time.Duration
+	// The sum of the latencies can overflow a time.Duration while their mean
+	// cannot, so sum each latency's quotient and remainder by n apart:
+	// floor(sum/n) = sum(d/n) + floor(sum(d%n)/n), and neither part overflows.
+	n := time.Duration(s.sampleCount)
+	var quotients, remainders time.Duration
 	var successCount int
 	for _, m := range s.measurements {
-		totalLatency += m.latency.Duration()
+		d := m.latency.Duration()
+		quotients += d / n
+		remainders += d % n
 		if m.success {
 			successCount++
 		}
 	}
 
-	s.averageLatency = NewLatency(totalLatency / time.Duration(s.sampleCount))
+	s.averageLatency = NewLatency(quotients + remainders/n)
 	s.successRate = NewSuccessRate(float64(successCount) / float64(s.sampleCount))
 }
 

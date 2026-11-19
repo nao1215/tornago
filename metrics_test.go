@@ -61,6 +61,18 @@ func TestMetricsCollector_RecordError(t *testing.T) {
 	}
 }
 
+func TestMetricsCollector_ErrorsByKindFindsAKindInsideAJoinedError(t *testing.T) {
+	t.Parallel()
+
+	m := NewMetricsCollector()
+	joined := errors.Join(errors.New("close failed"), newError(ErrTimeout, "op", "timed out", nil))
+	m.recordRequest(time.Millisecond, joined)
+
+	if got := m.ErrorsByKind()[ErrTimeout]; got != 1 {
+		t.Errorf("ErrorsByKind()[ErrTimeout] = %d, want 1", got)
+	}
+}
+
 func TestMetricsCollector_MultipleRecords(t *testing.T) {
 	m := NewMetricsCollector()
 	m.recordRequest(100*time.Millisecond, nil)
@@ -81,6 +93,30 @@ func TestMetricsCollector_MultipleRecords(t *testing.T) {
 	}
 	if m.AverageLatency() != 200*time.Millisecond {
 		t.Errorf("expected 200ms, got %v", m.AverageLatency())
+	}
+}
+
+func TestMetricsCollector_MinLatencyKeepsAZeroLatencyRequest(t *testing.T) {
+	t.Parallel()
+
+	// A clock with coarse resolution measures a fast request as 0. That 0 is
+	// the smallest latency seen and must stay the minimum after slower ones.
+	m := NewMetricsCollector()
+	m.recordRequest(0, nil)
+	m.recordRequest(5*time.Millisecond, nil)
+	m.recordRequest(3*time.Millisecond, nil)
+
+	if got := m.MinLatency(); got != 0 {
+		t.Errorf("MinLatency() = %v, want 0", got)
+	}
+	if got := m.MaxLatency(); got != 5*time.Millisecond {
+		t.Errorf("MaxLatency() = %v, want 5ms", got)
+	}
+
+	m.Reset()
+	m.recordRequest(7*time.Millisecond, nil)
+	if got := m.MinLatency(); got != 7*time.Millisecond {
+		t.Errorf("MinLatency() after Reset = %v, want 7ms", got)
 	}
 }
 

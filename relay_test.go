@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 )
@@ -168,6 +169,21 @@ func TestNewSuccessRate(t *testing.T) {
 			input:    1,
 			expected: 1,
 		},
+		{
+			name:     "NaN is not a rate and counts as zero",
+			input:    math.NaN(),
+			expected: 0,
+		},
+		{
+			name:     "positive infinity clamped to one",
+			input:    math.Inf(1),
+			expected: 1,
+		},
+		{
+			name:     "negative infinity clamped to zero",
+			input:    math.Inf(-1),
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -328,6 +344,35 @@ func TestRelayStatsAddMeasurement(t *testing.T) {
 	expectedRate := 2.0 / 3.0
 	if stats.SuccessRate().Float64() != expectedRate {
 		t.Errorf("success rate = %v, want %v", stats.SuccessRate().Float64(), expectedRate)
+	}
+}
+
+func TestRelayStatsAverageOfLatenciesWhoseSumOverflows(t *testing.T) {
+	t.Parallel()
+
+	// The sum of these latencies does not fit in a time.Duration. Their
+	// average does, and it is far above any threshold.
+	huge := time.Duration(math.MaxInt64 - 1)
+	stats := NewRelayStats(NewRelayFingerprint("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), 10*time.Minute)
+	for range 3 {
+		stats.AddMeasurement(NewRelayMeasurement(huge, true))
+	}
+
+	if got := stats.AverageLatency().Duration(); got != huge {
+		t.Errorf("average latency = %v, want %v", got, huge)
+	}
+	if !stats.IsSlow(NewRelayThreshold()) {
+		t.Error("a relay averaging the largest latency must be slow")
+	}
+
+	stats = NewRelayStats(NewRelayFingerprint("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"), 10*time.Minute)
+	stats.AddMeasurement(NewRelayMeasurement(huge, true))
+	stats.AddMeasurement(NewRelayMeasurement(huge, true))
+	stats.AddMeasurement(NewRelayMeasurement(1, true))
+	// floor((2*huge + 1) / 3) computed without overflow.
+	want := huge/3*2 + (huge%3*2+1)/3
+	if got := stats.AverageLatency().Duration(); got != want {
+		t.Errorf("average latency = %v, want %v", got, want)
 	}
 }
 
