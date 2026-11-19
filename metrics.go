@@ -32,7 +32,12 @@ type MetricsCollector struct {
 	totalLatency int64 // nanoseconds
 	minLatency   int64 // nanoseconds
 	maxLatency   int64 // nanoseconds
-	mu           sync.RWMutex
+	// mu serializes Reset with the min/max update of recordRequest.
+	mu sync.RWMutex
+	// hasLatency reports whether minLatency and maxLatency hold a recorded
+	// value. A recorded latency can be 0 on a coarse clock, so 0 cannot mean
+	// "nothing recorded yet". Guarded by mu.
+	hasLatency bool
 
 	// Error tracking by kind
 	errorsByKind map[ErrorKind]uint64
@@ -148,6 +153,7 @@ func (m *MetricsCollector) Reset() {
 	atomic.StoreInt64(&m.minLatency, 0)
 	atomic.StoreInt64(&m.maxLatency, 0)
 	atomic.StoreUint64(&m.dialCount, 0)
+	m.hasLatency = false
 
 	m.errorsMu.Lock()
 	m.errorsByKind = make(map[ErrorKind]uint64)
@@ -165,26 +171,17 @@ func (m *MetricsCollector) recordRequest(latency time.Duration, err error) {
 	latencyNs := int64(latency)
 	atomic.AddInt64(&m.totalLatency, latencyNs)
 
-	// Update min/max latency
-	for {
-		oldMin := atomic.LoadInt64(&m.minLatency)
-		if oldMin != 0 && latencyNs >= oldMin {
-			break
-		}
-		if atomic.CompareAndSwapInt64(&m.minLatency, oldMin, latencyNs) {
-			break
-		}
+	// Update min/max latency. The lock keeps the first recorded latency, which
+	// sets both, apart from the ones after it.
+	m.mu.Lock()
+	if !m.hasLatency || latencyNs < atomic.LoadInt64(&m.minLatency) {
+		atomic.StoreInt64(&m.minLatency, latencyNs)
 	}
-
-	for {
-		oldMax := atomic.LoadInt64(&m.maxLatency)
-		if latencyNs <= oldMax {
-			break
-		}
-		if atomic.CompareAndSwapInt64(&m.maxLatency, oldMax, latencyNs) {
-			break
-		}
+	if !m.hasLatency || latencyNs > atomic.LoadInt64(&m.maxLatency) {
+		atomic.StoreInt64(&m.maxLatency, latencyNs)
 	}
+	m.hasLatency = true
+	m.mu.Unlock()
 
 	if err == nil {
 		atomic.AddUint64(&m.successCount, 1)
