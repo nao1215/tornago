@@ -272,16 +272,22 @@ func (s *RelayStats) recalculate() {
 		return
 	}
 
-	var totalLatency time.Duration
+	// The sum of the latencies can overflow a time.Duration while their mean
+	// cannot, so sum each latency's quotient and remainder by n apart:
+	// floor(sum/n) = sum(d/n) + floor(sum(d%n)/n), and neither part overflows.
+	n := time.Duration(s.sampleCount)
+	var quotients, remainders time.Duration
 	var successCount int
 	for _, m := range s.measurements {
-		totalLatency += m.latency.Duration()
+		d := m.latency.Duration()
+		quotients += d / n
+		remainders += d % n
 		if m.success {
 			successCount++
 		}
 	}
 
-	s.averageLatency = NewLatency(totalLatency / time.Duration(s.sampleCount))
+	s.averageLatency = NewLatency(quotients + remainders/n)
 	s.successRate = NewSuccessRate(float64(successCount) / float64(s.sampleCount))
 }
 
