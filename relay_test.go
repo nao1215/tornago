@@ -695,29 +695,35 @@ func TestClearExcludeNodesWithoutControl(t *testing.T) {
 func TestGetBlockedFingerprintsWithExpired(t *testing.T) {
 	t.Parallel()
 
+	// The tracker's clock is stepped by hand: with the real clock a slow
+	// machine (the NetBSD VM in CI) let the block expire before the first
+	// check ran.
+	clock := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
 	tracker := NewRelayPerformanceTracker(
 		WithTrackerThreshold(NewRelayThreshold().
 			WithMaxLatency(100 * time.Millisecond).
 			WithMinSamples(1).
-			WithBlockDuration(1 * time.Millisecond)), // Very short block duration
+			WithBlockDuration(time.Minute)),
 	)
+	tracker.now = func() time.Time { return clock }
 
 	fp := NewRelayFingerprint("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 	// Record slow measurements to trigger blocking
 	tracker.RecordMeasurement(fp, 200*time.Millisecond, true)
 
-	// Should be blocked initially
 	if !tracker.IsBlocked(fp) {
 		t.Error("relay should be blocked after slow measurement")
 	}
 
-	// Wait for block to expire
-	time.Sleep(5 * time.Millisecond)
+	clock = clock.Add(time.Minute - time.Nanosecond)
+	if !tracker.IsBlocked(fp) {
+		t.Error("relay should still be blocked just before the block expires")
+	}
 
-	// Should no longer be blocked
+	clock = clock.Add(time.Nanosecond)
 	if tracker.IsBlocked(fp) {
-		t.Error("relay should not be blocked after expiration")
+		t.Error("relay should not be blocked once the block expires")
 	}
 }
 
