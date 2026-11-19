@@ -711,6 +711,19 @@ All examples are tested and ready to run.
 - [nao1215/onionlint](https://github.com/nao1215/onionlint): Tor site anonymity linter
 - [nao1215/onionscan](https://github.com/nao1215/onionscan)：Investigating tool the Dark Web
 
+## Testing
+
+| Technique | Bug class caught here |
+|---|---|
+| Unit and integration tests ([client_test.go](client_test.go), [client_integration_test.go](client_integration_test.go), [example_test.go](example_test.go)) | A function, or a real Tor daemon round trip, that no longer does what its test spells out |
+| Property and boundary tests ([property_test.go](property_test.go)) | A SOCKS5 request that does not decode to its host and port, a statistic outside its range or out of step with the requests recorded, a port or domain length rejected or accepted at the wrong edge |
+| Metamorphic tests ([property_test.go](property_test.go)) | Relay statistics that change with measurement order, a stricter threshold that frees a slow relay, a status-line parser thrown by an unknown keyword |
+| Differential tests ([property_test.go](property_test.go)) | Address bytes that disagree with `net/netip`, an average latency that disagrees with the exact mean |
+| Fuzzing ([fuzz_test.go](fuzz_test.go)) | A crash or a wrong parse on a malformed ControlPort reply or SOCKS5 reply, a command that a value can split in two |
+| Mutation testing ([.github/workflows/mutation.yml](.github/workflows/mutation.yml)) | A test that runs a changed comparison or bound without noticing the change |
+
+How to run each one is in [doc/testing.md](doc/testing.md).
+
 ## Contributing
 Contributions are welcome! Please see the [Contributing Guide](./CONTRIBUTING.md) for more details.
 
