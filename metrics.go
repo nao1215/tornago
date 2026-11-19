@@ -1,6 +1,7 @@
 package tornago
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -190,36 +191,10 @@ func (m *MetricsCollector) recordRequest(latency time.Duration, err error) {
 
 		// Track error by kind
 		var torErr *TornagoError
-		if As(err, &torErr) {
+		if errors.As(err, &torErr) {
 			m.errorsMu.Lock()
 			m.errorsByKind[torErr.Kind]++
 			m.errorsMu.Unlock()
 		}
 	}
-}
-
-// As is a helper function that wraps errors.As for internal use.
-func As(err error, target any) bool {
-	if err == nil {
-		return false
-	}
-	targetPtr, ok := target.(**TornagoError)
-	if !ok {
-		return false
-	}
-	for err != nil {
-		if torErr, ok := err.(*TornagoError); ok { //nolint:errorlint // intentional type assertion
-			*targetPtr = torErr
-			return true
-		}
-		type unwrapper interface {
-			Unwrap() error
-		}
-		if u, ok := err.(unwrapper); ok {
-			err = u.Unwrap()
-		} else {
-			return false
-		}
-	}
-	return false
 }

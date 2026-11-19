@@ -61,6 +61,18 @@ func TestMetricsCollector_RecordError(t *testing.T) {
 	}
 }
 
+func TestMetricsCollector_ErrorsByKindFindsAKindInsideAJoinedError(t *testing.T) {
+	t.Parallel()
+
+	m := NewMetricsCollector()
+	joined := errors.Join(errors.New("close failed"), newError(ErrTimeout, "op", "timed out", nil))
+	m.recordRequest(time.Millisecond, joined)
+
+	if got := m.ErrorsByKind()[ErrTimeout]; got != 1 {
+		t.Errorf("ErrorsByKind()[ErrTimeout] = %d, want 1", got)
+	}
+}
+
 func TestMetricsCollector_MultipleRecords(t *testing.T) {
 	m := NewMetricsCollector()
 	m.recordRequest(100*time.Millisecond, nil)

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `MetricsCollector.MinLatency` keeps a request measured as 0 (a fast request on a coarse clock) as the minimum. It used to treat 0 as "nothing recorded yet" and replace it with the next latency.
+- `ErrorsByKind` counts a `TornagoError` that sits inside an `errors.Join`, as `errors.As` finds it.
+- `NewSuccessRate(NaN)` returns 0 instead of NaN, so `RelayThreshold.WithMinSuccessRate(NaN)` no longer builds a threshold that no rate is below.
+- `RelayStats.AverageLatency` is exact when the sum of the latencies in the window does not fit in a `time.Duration`. It used to wrap around and could report a very slow relay as fast.
+
+### Removed
+
+- `As`, an exported helper that only followed `Unwrap() error` and missed errors joined with `errors.Join`. Use `errors.As`, which `TornagoError` supports.
+- `TestServer` and `StartTestServer` are no longer part of the public API. They exist for this package's integration tests, and they made every importer link the `testing` package. pkg.go.dev lists no importer outside the maintainer's own repositories, and none of them uses either.
+
 ### Changed
 
 - CI scans the repository with gosec and Trivy on every pull request (Trivy covers dependency vulnerabilities, committed secrets and misconfigurations, and also runs daily). Workflow actions are recorded in `.github/workflows/actions.lock`, which CI verifies against the pinned commits.
