@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
 ### Fixed
 
 - `MetricsCollector.MinLatency` keeps a request measured as 0 (a fast request on a coarse clock) as the minimum. It used to treat 0 as "nothing recorded yet" and replace it with the next latency.
@@ -184,7 +186,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed initial Windows support (re-added in later version)
 
-[Unreleased]: https://github.com/nao1215/tornago/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/nao1215/tornago/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/nao1215/tornago/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/nao1215/tornago/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/nao1215/tornago/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/nao1215/tornago/compare/v0.4.0...v0.4.1
