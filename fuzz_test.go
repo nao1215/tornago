@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -246,6 +247,108 @@ func FuzzParseStatusLines(f *testing.F) {
 		}
 		if again := parseStreamLine(normalized); !reflect.DeepEqual(stream, again) {
 			t.Fatalf("parseStreamLine differs on whitespace: %+v vs %+v", stream, again)
+		}
+	})
+}
+
+// readerConn is a net.Conn whose reads come from r. Only Read is used by the
+// SOCKS5 reply reader; any other method would panic on the nil embedded Conn.
+type readerConn struct {
+	net.Conn
+	r io.Reader
+}
+
+func (c readerConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// FuzzConsumeConnectReply feeds arbitrary bytes to the SOCKS5 CONNECT reply
+// reader, which is what the SOCKS port answers before the tunneled stream
+// starts. It must accept exactly the replies RFC 1928 section 6 describes
+// with REP=0 (the VER byte is not checked), and on success it must leave every
+// byte after the reply unread: those bytes belong to the tunneled stream.
+func FuzzConsumeConnectReply(f *testing.F) {
+	for _, seed := range [][]byte{
+		{5, 0, 0, 1, 127, 0, 0, 1, 0, 80},
+		{5, 0, 0, 3, 3, 'a', 'b', 'c', 1, 187, 'H', 'T', 'T', 'P'},
+		{5, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 22},
+		{5, 1, 0, 1, 0, 0, 0, 0, 0, 0},
+		{5, 0, 0, 9},
+		{5, 0, 0, 3, 0, 0, 0},
+		{5, 0},
+		{},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// The reference length of a valid reply, or -1.
+		want := -1
+		if len(data) >= 4 && data[1] == 0 {
+			switch data[3] {
+			case 1:
+				want = 4 + 4 + 2
+			case 4:
+				want = 4 + 16 + 2
+			case 3:
+				if len(data) >= 5 {
+					want = 4 + 1 + int(data[4]) + 2
+				}
+			}
+		}
+		if want > len(data) {
+			want = -1
+		}
+
+		r := bytes.NewReader(data)
+		err := consumeConnectReply(readerConn{r: r})
+		if (err == nil) != (want >= 0) {
+			t.Fatalf("consumeConnectReply(%x) error = %v, want ok=%v", data, err, want >= 0)
+		}
+		if err == nil && r.Len() != len(data)-want {
+			t.Fatalf("consumeConnectReply(%x) left %d bytes, want %d", data, r.Len(), len(data)-want)
+		}
+		var te *TornagoError
+		if err != nil && (!errors.As(err, &te) || te.Kind != ErrSocksDialFailed) {
+			t.Fatalf("consumeConnectReply(%x) error = %v, want ErrSocksDialFailed", data, err)
+		}
+	})
+}
+
+// FuzzConnectRequestRoundTrip builds a SOCKS5 CONNECT request for an
+// arbitrary host and port and decodes it with the RFC 1928 decoder of
+// property_test.go: a host the request accepts must come back unchanged (an
+// IP address as the same address), and one it refuses must be an empty or
+// over-long domain name.
+func FuzzConnectRequestRoundTrip(f *testing.F) {
+	f.Add("example.com", uint16(443))
+	f.Add("127.0.0.1", uint16(80))
+	f.Add("::1", uint16(22))
+	f.Add("::ffff:10.0.0.1", uint16(8080))
+	f.Add("fe80::1%eth0", uint16(1))
+	f.Add("", uint16(0))
+	f.Add(strings.Repeat("a", 256), uint16(65535))
+	f.Fuzz(func(t *testing.T, host string, port uint16) {
+		req, err := buildConnectRequest(host, port)
+		isIP := net.ParseIP(host) != nil
+		if err != nil {
+			if isIP || (len(host) != 0 && len(host) <= 255) {
+				t.Fatalf("buildConnectRequest(%q, %d) refused a valid host: %v", host, port, err)
+			}
+			return
+		}
+		gotHost, gotPort, err := decodeConnectRequest(req)
+		if err != nil {
+			t.Fatalf("buildConnectRequest(%q, %d) = %x, which does not decode: %v", host, port, req, err)
+		}
+		if gotPort != port {
+			t.Fatalf("port %d came back as %d", port, gotPort)
+		}
+		if isIP {
+			if !net.ParseIP(host).Equal(net.ParseIP(gotHost)) {
+				t.Fatalf("address %q came back as %q", host, gotHost)
+			}
+			return
+		}
+		if gotHost != host {
+			t.Fatalf("domain %q came back as %q", host, gotHost)
 		}
 	})
 }
