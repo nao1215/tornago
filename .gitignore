@@ -51,3 +51,6 @@ integration.log
 /security
 /simple_client
 /slow_relay_avoidance
+
+# Bytecode from scripts/lock_actions.py
+__pycache__/
