@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -86,9 +87,10 @@ type SuccessRate struct {
 	value float64
 }
 
-// NewSuccessRate creates a new SuccessRate, clamping to [0.0, 1.0].
+// NewSuccessRate creates a new SuccessRate, clamping to [0.0, 1.0]. NaN is
+// not a rate and becomes 0.
 func NewSuccessRate(rate float64) SuccessRate {
-	if rate < 0 {
+	if math.IsNaN(rate) || rate < 0 {
 		rate = 0
 	}
 	if rate > 1 {

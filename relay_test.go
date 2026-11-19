@@ -2,6 +2,7 @@ package tornago
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 )
@@ -167,6 +168,21 @@ func TestNewSuccessRate(t *testing.T) {
 			name:     "one rate",
 			input:    1,
 			expected: 1,
+		},
+		{
+			name:     "NaN is not a rate and counts as zero",
+			input:    math.NaN(),
+			expected: 0,
+		},
+		{
+			name:     "positive infinity clamped to one",
+			input:    math.Inf(1),
+			expected: 1,
+		},
+		{
+			name:     "negative infinity clamped to zero",
+			input:    math.Inf(-1),
+			expected: 0,
 		},
 	}
 
