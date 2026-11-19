@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `MetricsCollector.MinLatency` keeps a request measured as 0 (a fast request on a coarse clock) as the minimum. It used to treat 0 as "nothing recorded yet" and replace it with the next latency.
 - `ErrorsByKind` counts a `TornagoError` that sits inside an `errors.Join`, as `errors.As` finds it.
+- `RelayPerformanceTracker.BlockedRelays` and `Stats` no longer delete expired blocks from the tracker's map under a read lock, which let two concurrent callers write the map together (a data race, and a `concurrent map writes` crash). At the instant a block expires they also agree with `IsBlocked`, which already said the relay was free while they still listed it.
 - `NewSuccessRate(NaN)` returns 0 instead of NaN, so `RelayThreshold.WithMinSuccessRate(NaN)` no longer builds a threshold that no rate is below.
 - `RelayStats.AverageLatency` is exact when the sum of the latencies in the window does not fit in a `time.Duration`. It used to wrap around and could report a very slow relay as fast.
 

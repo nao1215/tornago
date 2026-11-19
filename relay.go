@@ -352,6 +352,9 @@ type RelayPerformanceTracker struct {
 	logger        Logger
 	control       *ControlClient
 	autoExclude   bool
+	// now reads the clock that block expiry is judged by. It is time.Now
+	// outside tests, which replace it to step past an expiry without sleeping.
+	now func() time.Time
 }
 
 // RelayTrackerOption configures a RelayPerformanceTracker.
@@ -366,6 +369,7 @@ func NewRelayPerformanceTracker(opts ...RelayTrackerOption) *RelayPerformanceTra
 		measureWindow: defaultMeasurementWindow,
 		logger:        noopLogger{},
 		autoExclude:   true,
+		now:           time.Now,
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -451,7 +455,7 @@ func (t *RelayPerformanceTracker) blockRelay(fingerprint RelayFingerprint) {
 		return
 	}
 
-	now := time.Now()
+	now := t.now()
 	t.blockedRelays[fpStr] = blockedRelay{
 		fingerprint: fingerprint,
 		blockedAt:   now,
@@ -492,7 +496,7 @@ func (t *RelayPerformanceTracker) applyExcludeNodes() {
 // getBlockedFingerprints returns currently blocked fingerprints.
 // Must be called with at least read lock held.
 func (t *RelayPerformanceTracker) getBlockedFingerprints() []string {
-	now := time.Now()
+	now := t.now()
 	var blocked []string
 	for fp, br := range t.blockedRelays {
 		if now.Before(br.expiresAt) {
@@ -504,8 +508,9 @@ func (t *RelayPerformanceTracker) getBlockedFingerprints() []string {
 
 // BlockedRelays returns a list of currently blocked relay fingerprints.
 func (t *RelayPerformanceTracker) BlockedRelays() []RelayFingerprint {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// A write lock: dropping the expired blocks deletes from the map.
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	t.pruneExpiredBlocks()
 
@@ -516,12 +521,13 @@ func (t *RelayPerformanceTracker) BlockedRelays() []RelayFingerprint {
 	return relays
 }
 
-// pruneExpiredBlocks removes expired blocks.
-// Must be called with lock held.
+// pruneExpiredBlocks removes expired blocks. A block has expired once now is
+// no longer before expiresAt, the same instant IsBlocked starts to say false.
+// Must be called with the write lock held.
 func (t *RelayPerformanceTracker) pruneExpiredBlocks() {
-	now := time.Now()
+	now := t.now()
 	for fp, br := range t.blockedRelays {
-		if now.After(br.expiresAt) {
+		if !now.Before(br.expiresAt) {
 			delete(t.blockedRelays, fp)
 		}
 	}
@@ -536,7 +542,7 @@ func (t *RelayPerformanceTracker) IsBlocked(fingerprint RelayFingerprint) bool {
 	if !exists {
 		return false
 	}
-	return time.Now().Before(br.expiresAt)
+	return t.now().Before(br.expiresAt)
 }
 
 // GetStats returns statistics for a specific relay.
@@ -575,8 +581,9 @@ type TrackerStats struct {
 
 // Stats returns current tracker statistics.
 func (t *RelayPerformanceTracker) Stats() TrackerStats {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// A write lock: dropping the expired blocks deletes from the map.
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	t.pruneExpiredBlocks()
 
