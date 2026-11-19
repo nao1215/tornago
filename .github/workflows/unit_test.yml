@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Cancel the superseded run of a pull request when it is pushed again. Every
+# other run (push, schedule, manual) is its own group, so none is ever canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   unit_test:
     name: Unit test with Tor
@@ -29,6 +35,12 @@ jobs:
         go:
           - "1.24"
           - "stable"
+        # The Coverage workflow runs the same `make integration-test` on
+        # ubuntu-latest with the stable Go, so this leg would only repeat it
+        # and take a runner slot from the rest of the pull request.
+        exclude:
+          - os: "ubuntu-latest"
+            go: "stable"
       fail-fast: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
