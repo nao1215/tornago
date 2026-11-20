@@ -195,6 +195,9 @@ func main() {
 	}
 
 	fmt.Printf("\nResponse preview (first 500 bytes):\n%s\n", string(body))
+	if len(body) == 500 {
+		fmt.Println("... (truncated)")
+	}
 }
 ```
 
@@ -210,6 +213,7 @@ Status: 200 OK
 
 Response preview (first 500 bytes):
 <!doctype html><html lang="en"><head><title>Example Domain</title>...
+... (truncated)
 ```
 
 ## 遅いリレー回避
