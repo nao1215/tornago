@@ -49,58 +49,7 @@ Para prevenir posibles abusos, tornago se mantiene intencionalmente como un wrap
 
 Tor (The Onion Router) proporciona anonimato enrutando el tráfico a través de múltiples capas cifradas. Comprender este mecanismo le ayuda a usar tornago de manera efectiva.
 
-### Enrutamiento Cebolla: Cifrado de Múltiples Capas
-
-```mermaid
-sequenceDiagram
-    participant Client as Su Aplicación<br/>(tornago)
-    participant Guard as Nodo de Entrada<br/>(Guard)
-    participant Middle as Nodo Intermedio
-    participant Exit as Nodo de Salida
-    participant Target as Servidor Objetivo<br/>(example.com)
-
-    Note over Client: 1. Construir Circuito
-    Client->>Guard: Cifrado con clave Guard<br/>[Info Intermedia + Info Salida + Solicitud]
-    Note over Guard: Descifrar 1ª capa<br/>Ver: Dirección nodo intermedio
-    Guard->>Middle: Cifrado con clave Intermedia<br/>[Info Salida + Solicitud]
-    Note over Middle: Descifrar 2ª capa<br/>Ver: Dirección nodo de salida
-    Middle->>Exit: Cifrado con clave Salida<br/>[Solicitud]
-    Note over Exit: Descifrar 3ª capa<br/>Ver: Dirección objetivo
-
-    Note over Client,Target: 2. Enviar Solicitud
-    Client->>Guard: Datos cifrados (3 capas)
-    Guard->>Middle: Datos cifrados (2 capas)
-    Middle->>Exit: Datos cifrados (1 capa)
-    Exit->>Target: Solicitud HTTP/HTTPS sin cifrar
-
-    Note over Client,Target: 3. Recibir Respuesta
-    Target->>Exit: Respuesta HTTP/HTTPS sin cifrar
-    Exit->>Middle: Respuesta cifrada (1 capa)
-    Middle->>Guard: Respuesta cifrada (2 capas)
-    Guard->>Client: Respuesta cifrada (3 capas)
-    Note over Client: Descifrar todas las capas<br/>Ver respuesta final
-```
-
-### Propiedades Clave de Seguridad
-
-**Cifrado por Capas (Capas Cebolla)**
-- Cada relé solo conoce su predecesor y sucesor inmediatos
-- El nodo de entrada (Guard) conoce su IP pero no su destino
-- El nodo de salida conoce su destino pero no su IP
-- El nodo intermedio no conoce ni su IP ni su destino
-
-**Garantías de Privacidad**
-- Su ISP ve: Usted se conecta a un nodo de entrada de Tor (pero no a qué está accediendo)
-- El nodo de entrada ve: Su dirección IP (pero no su destino)
-- El nodo intermedio ve: Solo tráfico de relé (sin fuente ni destino)
-- El nodo de salida ve: Su destino (pero no su IP real)
-- El servidor objetivo ve: IP del nodo de salida (no su IP real)
-
-**Limitaciones a Entender**
-- El nodo de salida puede ver tráfico sin cifrar (use HTTPS para cifrado de extremo a extremo)
-- Los operadores de nodos de salida podrían monitorear el tráfico (pero no pueden rastrearlo hasta usted)
-- El análisis de temporización podría correlacionar patrones de tráfico (Tor proporciona anonimato, no desvinculación perfecta)
-- Más lento que la conexión directa (el enrutamiento de 3 saltos añade latencia)
+El tráfico pasa por tres relés (guardia, intermedio y salida) y cada uno quita una capa de cifrado, así que ningún relé conoce a la vez su IP y su destino. El relé de salida puede leer el tráfico que no está cifrado de extremo a extremo, por lo que debe usar HTTPS. Los tres saltos hacen que las peticiones sean más lentas que una conexión directa. Más detalles en la [documentación del Tor Project](https://support.torproject.org/).
 
 ### El Rol de Tornago
 

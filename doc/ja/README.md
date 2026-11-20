@@ -49,58 +49,7 @@ Tornagoは、[Tor](https://www.torproject.org/)コマンドラインツールの
 
 Tor（The Onion Router）は、複数の暗号化層を経由してトラフィックをルーティングすることで匿名性を提供します。この仕組みを理解することで、tornagoを効果的に使用できます。
 
-### オニオンルーティング：多層暗号化
-
-```mermaid
-sequenceDiagram
-    participant Client as アプリケーション<br/>(tornago)
-    participant Guard as エントリーノード<br/>(Guard)
-    participant Middle as 中継ノード
-    participant Exit as 出口ノード
-    participant Target as ターゲットサーバー<br/>(example.com)
-
-    Note over Client: 1. 回線構築
-    Client->>Guard: Guard鍵で暗号化<br/>[中継情報 + 出口情報 + リクエスト]
-    Note over Guard: 1層目を復号<br/>確認: 中継ノードアドレス
-    Guard->>Middle: 中継鍵で暗号化<br/>[出口情報 + リクエスト]
-    Note over Middle: 2層目を復号<br/>確認: 出口ノードアドレス
-    Middle->>Exit: 出口鍵で暗号化<br/>[リクエスト]
-    Note over Exit: 3層目を復号<br/>確認: ターゲットアドレス
-
-    Note over Client,Target: 2. リクエスト送信
-    Client->>Guard: 暗号化データ (3層)
-    Guard->>Middle: 暗号化データ (2層)
-    Middle->>Exit: 暗号化データ (1層)
-    Exit->>Target: 平文 HTTP/HTTPS リクエスト
-
-    Note over Client,Target: 3. レスポンス受信
-    Target->>Exit: 平文 HTTP/HTTPS レスポンス
-    Exit->>Middle: 暗号化レスポンス (1層)
-    Middle->>Guard: 暗号化レスポンス (2層)
-    Guard->>Client: 暗号化レスポンス (3層)
-    Note over Client: 全層を復号<br/>最終レスポンス確認
-```
-
-### 主なセキュリティ特性
-
-**多層暗号化（オニオン層）**
-- 各中継ノードは直前と直後のノードのみを認識
-- エントリーノード（Guard）はあなたのIPを知っているが宛先は不明
-- 出口ノードは宛先を知っているがあなたのIPは不明
-- 中継ノードはあなたのIPも宛先も不明
-
-**プライバシー保証**
-- ISPが確認できること: Torエントリーノードへの接続（アクセス先は不明）
-- エントリーノードが確認できること: あなたのIPアドレス（宛先は不明）
-- 中継ノードが確認できること: 中継トラフィックのみ（送信元も宛先も不明）
-- 出口ノードが確認できること: 宛先（あなたの実IPは不明）
-- ターゲットサーバーが確認できること: 出口ノードのIP（あなたの実IPは不明）
-
-**理解すべき制限事項**
-- 出口ノードは暗号化されていないトラフィックを確認可能（エンドツーエンド暗号化にはHTTPSを使用）
-- 出口ノード運営者がトラフィックを監視する可能性（ただし送信元の追跡は不可）
-- タイミング分析でトラフィックパターンが相関する可能性（Torは匿名性を提供するが完全な追跡不可性ではない）
-- 直接接続より遅い（3ホップルーティングでレイテンシが増加）
+通信はガード、中継、出口の 3 つのリレーを通り、各リレーが暗号化を 1 層ずつ外すので、送信元 IP と宛先の両方を知るリレーはありません。出口リレーはエンドツーエンドで暗号化されていない通信を読めるため、HTTPS を使ってください。3 ホップを経由するぶん、直接接続より遅くなります。詳しくは [Tor Project のドキュメント](https://support.torproject.org/) を参照してください。
 
 ### Tornagoの役割
 
@@ -310,56 +259,7 @@ client, err := tornago.NewClient(
 
 ### 動作の仕組み
 
-```mermaid
-sequenceDiagram
-    participant App as アプリケーション
-    participant Client as Tornagoクライアント
-    participant Tor as Torデーモン
-    participant Network as Torネットワーク
-
-    Note over App,Network: フェーズ1: 自動計測による通常操作
-
-    App->>Client: client.Do(req)
-    Client->>Tor: HTTPリクエスト
-    Tor->>Network: 回線経由でルーティング<br/>(ガード → 中間 → 出口)
-    Network-->>Tor: レスポンス
-    Tor-->>Client: レスポンス (遅延: 2秒)
-    Client->>Client: 回線内の全リレーの<br/>計測を自動記録
-    Client-->>App: レスポンス
-
-    Note over App,Network: フェーズ2: 遅いリレーを検出
-
-    App->>Client: client.Do(req)
-    Client->>Tor: HTTPリクエスト
-    Tor->>Network: 回線経由でルーティング
-    Network-->>Tor: レスポンス (遅い)
-    Tor-->>Client: レスポンス (遅延: 8秒)
-    Client->>Client: 計測を自動記録<br/>出口: 平均5秒がしきい値超過!<br/>→ 遅いリレーをブロック
-
-    alt 自動除外が有効 (デフォルト)
-        Client->>Tor: SETCONF ExcludeNodes=$fingerprint
-        Note over Tor: Torはこのリレーを<br/>回避します
-    end
-
-    Client-->>App: レスポンス
-
-    Note over App,Network: フェーズ3: バックグラウンド監視によるローテーション
-
-    Client->>Tor: GETINFO circuit-status
-    Tor-->>Client: 回線パス
-    Client->>Client: 回線がブロック済みリレーを使用しているか確認
-    Client->>Tor: SIGNAL NEWNYM
-    Note over Tor: 遅いリレーなしで<br/>新しい回線を構築
-
-    Note over App,Network: フェーズ4: パフォーマンス向上
-
-    App->>Client: client.Do(req)
-    Client->>Tor: HTTPリクエスト
-    Tor->>Network: 新しい回線経由でルーティング
-    Network-->>Tor: レスポンス (高速)
-    Tor-->>Client: レスポンス (遅延: 1.5秒)
-    Client-->>App: レスポンス ✓
-```
+`client.Do` のたびに、回線上の各リレーのレイテンシを記録します。平均がしきい値を超えたリレーはブロックし、AutoExclude が有効 (既定) なら `SETCONF` で Tor の `ExcludeNodes` に加えます。バックグラウンドの監視は `GETINFO circuit-status` を読み、今の回線がブロック済みのリレーを使っていれば `SIGNAL NEWNYM` を送って、そのリレーを含まない回線を Tor に作らせます。
 
 ### デフォルトのしきい値
 
@@ -392,15 +292,8 @@ sequenceDiagram
 すべての例はテスト済みで、すぐに実行可能です。
 
 ## コントリビューション
-コントリビューションを歓迎します！詳細は[コントリビューションガイド](../../CONTRIBUTING.md)をご覧ください。
 
-## サポート
-このプロジェクトが役立つと思われた場合は、以下をご検討ください：
-
-- GitHubでスターを付ける - 他の人がプロジェクトを発見する助けになります
-- [スポンサーになる](https://github.com/sponsors/nao1215) - あなたのサポートがプロジェクトを継続させ、開発のモチベーションになります
-
-スター、スポンサーシップ、コントリビューションなど、あなたのサポートがこのプロジェクトを前進させます。ありがとうございます！
+コントリビューションを歓迎します。詳細は[コントリビューションガイド](../../CONTRIBUTING.md)をご覧ください。tornago が役に立ったら、スターや[スポンサー](https://github.com/sponsors/nao1215)で支援してもらえると助かります。
 
 ## ライセンス
 
