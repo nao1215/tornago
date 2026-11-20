@@ -49,58 +49,7 @@ Tornago는 [Tor](https://www.torproject.org/) 명령줄 도구를 감싸는 경�
 
 Tor(The Onion Router)는 여러 암호화 계층을 통해 트래픽을 라우팅하여 익명성을 제공합니다. 이 메커니즘을 이해하면 tornago를 효과적으로 사용하는 데 도움이 됩니다.
 
-### 어니언 라우팅: 다층 암호화
-
-```mermaid
-sequenceDiagram
-    participant Client as 귀하의 애플리케이션<br/>(tornago)
-    participant Guard as 진입 노드<br/>(Guard)
-    participant Middle as 중간 노드
-    participant Exit as 출구 노드
-    participant Target as 대상 서버<br/>(example.com)
-
-    Note over Client: 1. 회로 구축
-    Client->>Guard: Guard 키로 암호화<br/>[중간 정보 + 출구 정보 + 요청]
-    Note over Guard: 1번째 계층 복호화<br/>확인: 중간 노드 주소
-    Guard->>Middle: 중간 키로 암호화<br/>[출구 정보 + 요청]
-    Note over Middle: 2번째 계층 복호화<br/>확인: 출구 노드 주소
-    Middle->>Exit: 출구 키로 암호화<br/>[요청]
-    Note over Exit: 3번째 계층 복호화<br/>확인: 대상 주소
-
-    Note over Client,Target: 2. 요청 전송
-    Client->>Guard: 암호화된 데이터 (3계층)
-    Guard->>Middle: 암호화된 데이터 (2계층)
-    Middle->>Exit: 암호화된 데이터 (1계층)
-    Exit->>Target: 평문 HTTP/HTTPS 요청
-
-    Note over Client,Target: 3. 응답 수신
-    Target->>Exit: 평문 HTTP/HTTPS 응답
-    Exit->>Middle: 암호화된 응답 (1계층)
-    Middle->>Guard: 암호화된 응답 (2계층)
-    Guard->>Client: 암호화된 응답 (3계층)
-    Note over Client: 모든 계층 복호화<br/>최종 응답 확인
-```
-
-### 주요 보안 속성
-
-**계층화된 암호화(어니언 계층)**
-- 각 릴레이는 바로 앞과 뒤 노드만 알고 있음
-- 진입 노드(Guard)는 귀하의 IP를 알지만 목적지는 모름
-- 출구 노드는 목적지를 알지만 귀하의 IP는 모름
-- 중간 노드는 귀하의 IP도 목적지도 모름
-
-**개인정보 보장**
-- ISP가 볼 수 있는 것: Tor 진입 노드에 연결 (접속 대상은 모름)
-- 진입 노드가 볼 수 있는 것: 귀하의 IP 주소 (목적지는 모름)
-- 중간 노드가 볼 수 있는 것: 릴레이 트래픽만 (출처도 목적지도 모름)
-- 출구 노드가 볼 수 있는 것: 귀하의 목적지 (실제 IP는 모름)
-- 대상 서버가 볼 수 있는 것: 출구 노드의 IP (귀하의 실제 IP는 아님)
-
-**이해해야 할 제한사항**
-- 출구 노드는 암호화되지 않은 트래픽을 볼 수 있음 (종단간 암호화를 위해 HTTPS 사용)
-- 출구 노드 운영자가 트래픽을 모니터링할 수 있음 (하지만 추적은 불가능)
-- 타이밍 분석으로 트래픽 패턴을 연관시킬 수 있음 (Tor는 익명성을 제공하지만 완벽한 연결 해제는 아님)
-- 직접 연결보다 느림 (3홉 라우팅으로 지연 시간 증가)
+트래픽은 가드, 중간, 출구의 세 릴레이를 거치며 각 릴레이가 암호화를 한 겹씩 벗기므로, 사용자의 IP와 목적지를 모두 아는 릴레이는 없습니다. 출구 릴레이는 종단 간 암호화되지 않은 트래픽을 읽을 수 있으니 HTTPS를 사용하세요. 세 번의 홉 때문에 직접 연결보다 느립니다. 자세한 내용은 [Tor Project 문서](https://support.torproject.org/)를 참고하세요.
 
 ### Tornago의 역할
 

@@ -49,58 +49,7 @@ Tornago 是 [Tor](https://www.torproject.org/) 命令行工具的轻量级包装
 
 Tor（洋葱路由器）通过多层加密路由流量来提供匿名性。理解此机制有助于有效使用 tornago。
 
-### 洋葱路由：多层加密
-
-```mermaid
-sequenceDiagram
-    participant Client as 您的应用<br/>(tornago)
-    participant Guard as 入口节点<br/>(Guard)
-    participant Middle as 中间节点
-    participant Exit as 出口节点
-    participant Target as 目标服务器<br/>(example.com)
-
-    Note over Client: 1. 构建电路
-    Client->>Guard: 用 Guard 密钥加密<br/>[中间信息 + 出口信息 + 请求]
-    Note over Guard: 解密第1层<br/>看到：中间节点地址
-    Guard->>Middle: 用中间密钥加密<br/>[出口信息 + 请求]
-    Note over Middle: 解密第2层<br/>看到：出口节点地址
-    Middle->>Exit: 用出口密钥加密<br/>[请求]
-    Note over Exit: 解密第3层<br/>看到：目标地址
-
-    Note over Client,Target: 2. 发送请求
-    Client->>Guard: 加密数据（3层）
-    Guard->>Middle: 加密数据（2层）
-    Middle->>Exit: 加密数据（1层）
-    Exit->>Target: 明文 HTTP/HTTPS 请求
-
-    Note over Client,Target: 3. 接收响应
-    Target->>Exit: 明文 HTTP/HTTPS 响应
-    Exit->>Middle: 加密响应（1层）
-    Middle->>Guard: 加密响应（2层）
-    Guard->>Client: 加密响应（3层）
-    Note over Client: 解密所有层<br/>查看最终响应
-```
-
-### 关键安全特性
-
-**分层加密（洋葱层）**
-- 每个中继只知道其直接前驱和后继
-- 入口节点（Guard）知道您的 IP 但不知道目的地
-- 出口节点知道目的地但不知道您的 IP
-- 中间节点既不知道您的 IP 也不知道目的地
-
-**隐私保证**
-- ISP 看到：您连接到 Tor 入口节点（但不知道您访问什么）
-- 入口节点看到：您的 IP 地址（但不知道目的地）
-- 中间节点看到：仅中继流量（无来源或目的地）
-- 出口节点看到：您的目的地（但不知道您的真实 IP）
-- 目标服务器看到：出口节点的 IP（不是您的真实 IP）
-
-**需要理解的限制**
-- 出口节点可以看到未加密流量（使用 HTTPS 进行端到端加密）
-- 出口节点运营商可能监控流量（但无法追溯到您）
-- 时序分析可能关联流量模式（Tor 提供匿名性，而非完美不可关联性）
-- 比直接连接慢（3 跳路由增加延迟）
+流量依次经过守卫、中间和出口三个中继，每个中继剥掉一层加密，因此没有任何一个中继同时知道你的 IP 和目标地址。出口中继可以读取未做端到端加密的流量，所以请使用 HTTPS。三跳路由也使请求比直连更慢。详情见 [Tor Project 文档](https://support.torproject.org/)。
 
 ### Tornago 的角色
 
