@@ -107,42 +107,60 @@ Tornago 包含一个自动性能跟踪系统，可检测并规避慢速 Tor 中�
 ### 基本用法（推荐）
 
 ```go
-// 创建启用慢速中继规避的客户端
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(),  // 使用默认设置启用
+// Create client with slow relay avoidance enabled
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(), // Enable with defaults
 )
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-// 正常发送请求 - 一切自动处理
+// Make requests normally; everything is handled automatically
 resp, err := client.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
 
-// 可选地检查性能统计
+// Optionally check performance statistics
 stats, ok := client.RelayPerformanceStats()
 if ok {
-    fmt.Printf("跟踪中: %d, 已阻止: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+	fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
 }
 ```
 
 ### 自定义阈值配置
 
 ```go
-// 使用自定义设置启用，满足更严格的要求
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(
-        tornago.SlowRelayMaxLatency(3*time.Second),   // 阻止慢于3秒的中继
-        tornago.SlowRelayMinSuccessRate(0.9),         // 要求90%成功率
-        tornago.SlowRelayBlockDuration(1*time.Hour),  // 阻止1小时
-        tornago.SlowRelayMinSamples(5),               // 判断前需要5个样本
-        tornago.SlowRelayMonitorInterval(15*time.Second), // 每15秒检查一次
-    ),
+// Enable with custom settings for stricter requirements
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(
+		tornago.SlowRelayMaxLatency(3*time.Second),       // Block relays slower than 3s
+		tornago.SlowRelayMinSuccessRate(0.9),             // Require 90% success rate
+		tornago.SlowRelayBlockDuration(1*time.Hour),      // Block for 1 hour
+		tornago.SlowRelayMinSamples(5),                   // Need 5 samples before judging
+		tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+	),
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### 默认阈值
