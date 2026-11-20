@@ -107,42 +107,60 @@ Tornago에는 느린 Tor 릴레이를 자동으로 감지하고 회피하는 성
 ### 기본 사용법 (권장)
 
 ```go
-// 느린 릴레이 회피가 활성화된 클라이언트 생성
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(),  // 기본값으로 활성화
+// Create client with slow relay avoidance enabled
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(), // Enable with defaults
 )
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-// 정상적으로 요청 실행 - 모든 것이 자동으로 처리됩니다
+// Make requests normally; everything is handled automatically
 resp, err := client.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
 
-// 선택적으로 성능 통계 확인
+// Optionally check performance statistics
 stats, ok := client.RelayPerformanceStats()
 if ok {
-    fmt.Printf("추적 중: %d, 차단됨: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+	fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
 }
 ```
 
 ### 사용자 정의 임계값 설정
 
 ```go
-// 더 엄격한 요구 사항을 위한 사용자 정의 설정으로 활성화
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(
-        tornago.SlowRelayMaxLatency(3*time.Second),   // 3초보다 느린 릴레이 차단
-        tornago.SlowRelayMinSuccessRate(0.9),         // 90% 성공률 요구
-        tornago.SlowRelayBlockDuration(1*time.Hour),  // 1시간 동안 차단
-        tornago.SlowRelayMinSamples(5),               // 판단 전 5개 샘플 필요
-        tornago.SlowRelayMonitorInterval(15*time.Second), // 15초마다 확인
-    ),
+// Enable with custom settings for stricter requirements
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(
+		tornago.SlowRelayMaxLatency(3*time.Second),       // Block relays slower than 3s
+		tornago.SlowRelayMinSuccessRate(0.9),             // Require 90% success rate
+		tornago.SlowRelayBlockDuration(1*time.Hour),      // Block for 1 hour
+		tornago.SlowRelayMinSamples(5),                   // Need 5 samples before judging
+		tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+	),
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### 기본 임계값

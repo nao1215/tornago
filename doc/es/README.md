@@ -107,42 +107,60 @@ Tornago incluye un sistema de seguimiento de rendimiento automático que detecta
 ### Uso Básico (Recomendado)
 
 ```go
-// Crear cliente con evasión de relés lentos habilitada
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(),  // Habilitar con valores predeterminados
+// Create client with slow relay avoidance enabled
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(), // Enable with defaults
 )
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-// Hacer solicitudes normalmente - todo se maneja automáticamente
+// Make requests normally; everything is handled automatically
 resp, err := client.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
 
-// Opcionalmente verificar estadísticas de rendimiento
+// Optionally check performance statistics
 stats, ok := client.RelayPerformanceStats()
 if ok {
-    fmt.Printf("Rastreados: %d, Bloqueados: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+	fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
 }
 ```
 
 ### Configuración de Umbrales Personalizados
 
 ```go
-// Habilitar con configuración personalizada para requisitos más estrictos
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(
-        tornago.SlowRelayMaxLatency(3*time.Second),   // Bloquear relés más lentos que 3s
-        tornago.SlowRelayMinSuccessRate(0.9),         // Requerir 90% de tasa de éxito
-        tornago.SlowRelayBlockDuration(1*time.Hour),  // Bloquear por 1 hora
-        tornago.SlowRelayMinSamples(5),               // Necesitar 5 muestras antes de juzgar
-        tornago.SlowRelayMonitorInterval(15*time.Second), // Verificar cada 15s
-    ),
+// Enable with custom settings for stricter requirements
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(
+		tornago.SlowRelayMaxLatency(3*time.Second),       // Block relays slower than 3s
+		tornago.SlowRelayMinSuccessRate(0.9),             // Require 90% success rate
+		tornago.SlowRelayBlockDuration(1*time.Hour),      // Block for 1 hour
+		tornago.SlowRelayMinSamples(5),                   // Need 5 samples before judging
+		tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+	),
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### Valores de Umbral Predeterminados

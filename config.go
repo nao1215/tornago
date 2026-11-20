@@ -480,7 +480,8 @@ func WithClientRateLimiter(r *RateLimiter) ClientOption {
 // Example with default settings (recommended for most users):
 //
 //	tracker := tornago.NewRelayPerformanceTracker()
-//	client, err := tornago.NewClient(
+//	cfg, err := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
 //	    tornago.WithClientPerformanceTracker(tracker),
 //	)
 //
@@ -492,7 +493,8 @@ func WithClientRateLimiter(r *RateLimiter) ClientOption {
 //	tracker := tornago.NewRelayPerformanceTracker(
 //	    tornago.WithTrackerThreshold(threshold),
 //	)
-//	client, err := tornago.NewClient(
+//	cfg, err := tornago.NewClientConfig(
+//	    tornago.WithClientSocksAddr("127.0.0.1:9050"),
 //	    tornago.WithClientPerformanceTracker(tracker),
 //	)
 func WithClientPerformanceTracker(tracker *RelayPerformanceTracker) ClientOption {
@@ -523,14 +525,14 @@ func WithClientPerformanceTracker(tracker *RelayPerformanceTracker) ClientOption
 // Example:
 //
 //	// Enable with defaults
-//	client, err := tornago.NewClient(
+//	cfg, err := tornago.NewClientConfig(
 //	    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
 //	    tornago.WithClientControlAddr(torProcess.ControlAddr()),
 //	    tornago.WithSlowRelayAvoidance(),
 //	)
 //
-//	// Enable with custom settings
-//	client, err := tornago.NewClient(
+//	// Or enable with custom settings
+//	cfg, err := tornago.NewClientConfig(
 //	    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
 //	    tornago.WithClientControlAddr(torProcess.ControlAddr()),
 //	    tornago.WithSlowRelayAvoidance(
@@ -538,6 +540,8 @@ func WithClientPerformanceTracker(tracker *RelayPerformanceTracker) ClientOption
 //	        tornago.SlowRelayMinSuccessRate(0.9),
 //	    ),
 //	)
+//
+//	client, err := tornago.NewClient(cfg)
 //
 //	// Get performance statistics
 //	stats, ok := client.RelayPerformanceStats()

@@ -138,11 +138,11 @@ import (
 )
 
 func main() {
-	// ステップ1: Torデーモンを起動
+	// Step 1: Launch Tor daemon
 	fmt.Println("Starting Tor daemon...")
 	launchCfg, err := tornago.NewTorLaunchConfig(
-		tornago.WithTorSocksAddr(":0"),     // ランダムポートを使用
-		tornago.WithTorControlAddr(":0"),   // ランダムポートを使用
+		tornago.WithTorSocksAddr(":0"),   // Use random available port
+		tornago.WithTorControlAddr(":0"), // Use random available port
 		tornago.WithTorStartupTimeout(60*time.Second),
 	)
 	if err != nil {
@@ -159,7 +159,7 @@ func main() {
 	fmt.Printf("  SOCKS address: %s\n", torProcess.SocksAddr())
 	fmt.Printf("  Control address: %s\n", torProcess.ControlAddr())
 
-	// ステップ2: Torクライアントを作成
+	// Step 2: Create Tor client
 	clientCfg, err := tornago.NewClientConfig(
 		tornago.WithClientSocksAddr(torProcess.SocksAddr()),
 		tornago.WithClientRequestTimeout(60*time.Second),
@@ -174,7 +174,7 @@ func main() {
 	}
 	defer client.Close()
 
-	// ステップ3: Tor経由でHTTPリクエスト
+	// Step 3: Make HTTP request through Tor
 	fmt.Println("\nFetching https://example.com through Tor...")
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
 	if err != nil {
@@ -223,42 +223,60 @@ Tornagoには、遅いTorリレーを自動的に検出して回避するパフ�
 ### 基本的な使い方（推奨）
 
 ```go
-// 遅いリレー回避を有効にしてクライアントを作成
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(),  // デフォルト設定で有効化
+// Create client with slow relay avoidance enabled
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(), // Enable with defaults
 )
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-// 通常どおりリクエストを実行 - すべて自動的に処理されます
+// Make requests normally; everything is handled automatically
 resp, err := client.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
 
-// オプションでパフォーマンス統計を確認
+// Optionally check performance statistics
 stats, ok := client.RelayPerformanceStats()
 if ok {
-    fmt.Printf("追跡中: %d, ブロック中: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+	fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
 }
 ```
 
 ### カスタムしきい値設定
 
 ```go
-// より厳しい要件のためのカスタム設定で有効化
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(
-        tornago.SlowRelayMaxLatency(3*time.Second),   // 3秒より遅いリレーをブロック
-        tornago.SlowRelayMinSuccessRate(0.9),         // 90%の成功率を要求
-        tornago.SlowRelayBlockDuration(1*time.Hour),  // 1時間ブロック
-        tornago.SlowRelayMinSamples(5),               // 判定前に5サンプル必要
-        tornago.SlowRelayMonitorInterval(15*time.Second), // 15秒ごとにチェック
-    ),
+// Enable with custom settings for stricter requirements
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(
+		tornago.SlowRelayMaxLatency(3*time.Second),       // Block relays slower than 3s
+		tornago.SlowRelayMinSuccessRate(0.9),             // Require 90% success rate
+		tornago.SlowRelayBlockDuration(1*time.Hour),      // Block for 1 hour
+		tornago.SlowRelayMinSamples(5),                   // Need 5 samples before judging
+		tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+	),
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### 動作の仕組み

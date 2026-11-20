@@ -107,42 +107,60 @@ Tornago включает автоматическую систему отсле�
 ### Базовое использование (рекомендуется)
 
 ```go
-// Создание клиента с включённым обходом медленных реле
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(),  // Включить с настройками по умолчанию
+// Create client with slow relay avoidance enabled
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(), // Enable with defaults
 )
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-// Выполнение запросов как обычно - всё обрабатывается автоматически
+// Make requests normally; everything is handled automatically
 resp, err := client.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
 
-// Опционально проверить статистику производительности
+// Optionally check performance statistics
 stats, ok := client.RelayPerformanceStats()
 if ok {
-    fmt.Printf("Отслеживается: %d, Заблокировано: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
+	fmt.Printf("Tracked: %d, Blocked: %d\n", stats.TrackedRelays(), stats.BlockedRelays())
 }
 ```
 
 ### Настройка пользовательских порогов
 
 ```go
-// Включить с пользовательскими настройками для более строгих требований
-client, err := tornago.NewClient(
-    tornago.WithClientSocksAddr(torProcess.SocksAddr()),
-    tornago.WithClientControlAddr(torProcess.ControlAddr()),
-    tornago.WithSlowRelayAvoidance(
-        tornago.SlowRelayMaxLatency(3*time.Second),   // Блокировать реле медленнее 3с
-        tornago.SlowRelayMinSuccessRate(0.9),         // Требовать 90% успешности
-        tornago.SlowRelayBlockDuration(1*time.Hour),  // Блокировать на 1 час
-        tornago.SlowRelayMinSamples(5),               // Нужно 5 образцов перед оценкой
-        tornago.SlowRelayMonitorInterval(15*time.Second), // Проверять каждые 15с
-    ),
+// Enable with custom settings for stricter requirements
+clientCfg, err := tornago.NewClientConfig(
+	tornago.WithClientSocksAddr(torProcess.SocksAddr()),
+	tornago.WithClientControlAddr(torProcess.ControlAddr()),
+	tornago.WithSlowRelayAvoidance(
+		tornago.SlowRelayMaxLatency(3*time.Second),       // Block relays slower than 3s
+		tornago.SlowRelayMinSuccessRate(0.9),             // Require 90% success rate
+		tornago.SlowRelayBlockDuration(1*time.Hour),      // Block for 1 hour
+		tornago.SlowRelayMinSamples(5),                   // Need 5 samples before judging
+		tornago.SlowRelayMonitorInterval(15*time.Second), // Check every 15s
+	),
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := tornago.NewClient(clientCfg)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
 ```
 
 ### Пороговые значения по умолчанию
