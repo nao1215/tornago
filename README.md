@@ -170,6 +170,9 @@ func main() {
 	}
 
 	fmt.Printf("\nResponse preview (first 500 bytes):\n%s\n", string(body))
+	if len(body) == 500 {
+		fmt.Println("... (truncated)")
+	}
 }
 ```
 
@@ -186,6 +189,7 @@ Status: 200 OK
 
 Response preview (first 500 bytes):
 <!doctype html><html lang="en"><head><title>Example Domain</title>...
+... (truncated)
 ```
 
 ### Access a .onion site
@@ -218,6 +222,7 @@ Status: 200 OK
 
 Response preview (first 500 bytes):
 <!DOCTYPE html><html lang="en-US" class=""><head><meta charSet="utf-8"...
+... (truncated)
 ```
 
 ### Host a .onion site
@@ -282,8 +287,8 @@ Creating Hidden Service...
    Onion Address: http://f64ekih3d23wxhdb547wfj7nornjw5nb3ehuu4do45tw2wwmuzhad3yd.onion
    Local Address: http://127.0.0.1:8080
 
-Access the hidden service through Tor using the onion address above.
-Press Ctrl+C to stop...
+You can access this hidden service through Tor using the onion address above.
+Press Ctrl+C to stop the server...
 ```
 
 Open the generated .onion address in Tor Browser or any other Tor client:
